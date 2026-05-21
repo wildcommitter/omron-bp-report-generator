@@ -145,27 +145,116 @@ def add_table(fig, df_, top=0.86, bottom=0.08, fontsize=9, col_widths=None,
 out = HERE / "report.pdf"
 pages = 0
 with PdfPages(out) as pdf:
-    # Cover (portrait)
+    # Cover (portrait) — clinical summary tailored for cardiology review
+    cs_df = pd.read_csv(HERE / "clinical_summary.csv")
+    cs = dict(zip(cs_df["key"], cs_df["value"]))
+    stage_df = pd.read_csv(HERE / "stage_counts.csv")
+    hourly_csv = pd.read_csv(HERE / "hourly_stats.csv").set_index("hour")
+
+    def _surge(m):
+        pre = hourly_csv.loc[hourly_csv.index < 6, f"{m}_mean"]
+        morn = hourly_csv.loc[(hourly_csv.index >= 6) & (hourly_csv.index <= 10),
+                              f"{m}_mean"]
+        if pre.empty or morn.empty:
+            return "—"
+        return f"+{morn.max() - pre.min():.1f}"
+
+    days_total = int(cs["days_total"])
+    days_s2 = int(cs["days_stage2"])
+    days_clean = int(cs["days_all_clean"])
+    esh_above = int(cs["esh_above_n"])
+    esh_pct = float(cs["esh_above_pct"])
+
     fig = new_page(pdf, "Blood pressure & pulse report", size=PORTRAIT)
     fig.text(0.5, 0.85, "Source: input.csv (OMRON Complete export)",
              ha="center", fontsize=10, style="italic", color="#666")
-    fig.text(0.5, 0.78, "Overview", ha="center", fontsize=14,
-             fontweight="bold")
-    summary = pd.DataFrame({
-        "Metric":  ["Systolic (mmHg)", "Diastolic (mmHg)", "Pulse (bpm)"],
-        "Mean":    [f"{df['sys'].mean():.1f}", f"{df['dia'].mean():.1f}",
-                    f"{df['pulse'].mean():.1f}"],
-        "Min":     [df["sys"].min(), df["dia"].min(), df["pulse"].min()],
-        "Max":     [df["sys"].max(), df["dia"].max(), df["pulse"].max()],
-        "Std dev": [f"{df['sys'].std():.1f}", f"{df['dia'].std():.1f}",
-                    f"{df['pulse'].std():.1f}"],
-    })
-    add_table(fig, summary, top=0.76, bottom=0.58, fontsize=11,
-              col_widths=[0.32, 0.13, 0.11, 0.11, 0.15])
-    fig.text(0.5, 0.46,
-             f"Generated {datetime.now():%Y-%m-%d %H:%M}",
-             ha="center", fontsize=9, color="#888")
+
+    LMARGIN = 0.08
+    def _head(y, text):
+        fig.text(LMARGIN, y, text, fontsize=11, fontweight="bold",
+                 color="#1f3a5f")
+    def _line(y, text):
+        fig.text(LMARGIN + 0.03, y, text, fontsize=9.5, family="monospace",
+                 color="#222")
+
+    y = 0.80
+    _head(y, "VITALS OVERVIEW")
+    _line(y - 0.025, f"Systolic    {df['sys'].mean():>6.1f} mmHg     "
+                    f"range {df['sys'].min()}–{df['sys'].max()}     "
+                    f"SD {df['sys'].std():.1f}")
+    _line(y - 0.045, f"Diastolic   {df['dia'].mean():>6.1f} mmHg     "
+                    f"range {df['dia'].min()}–{df['dia'].max()}      "
+                    f"SD {df['dia'].std():.1f}")
+    _line(y - 0.065, f"Pulse       {df['pulse'].mean():>6.1f} bpm      "
+                    f"range {df['pulse'].min()}–{df['pulse'].max()}     "
+                    f"SD {df['pulse'].std():.1f}")
+
+    y = 0.70
+    _head(y, "DAY VS NIGHT (ESH 07–23h / 23–07h)")
+    _line(y - 0.025,
+          f"Daytime      {cs['day_sys_mean']}/{cs['day_dia_mean']} mmHg   "
+          f"(n={cs['day_n']})")
+    _line(y - 0.045,
+          f"Nighttime    {cs['night_sys_mean']}/{cs['night_dia_mean']} mmHg   "
+          f"(n={cs['night_n']})")
+    _line(y - 0.065,
+          f"Nocturnal dip   sys {cs['dip_sys_pct']}%   "
+          f"dia {cs['dip_dia_pct']}%   → {cs['dip_pattern']}")
+
+    y = 0.60
+    _head(y, "MORNING SURGE (peak 06–10h − trough 00–06h)")
+    _line(y - 0.025,
+          f"Sys {_surge('sys')}   Dia {_surge('dia')}   Pulse {_surge('pulse')}")
+    _line(y - 0.045,
+          "Sys surge ≥20 mmHg is flagged as excessive in CV literature.")
+
+    y = 0.52
+    _head(y, "READING DISTRIBUTION (ACC/AHA per individual reading)")
+    labels = {"Normal": "<120/80", "Elevated": "120–129",
+              "Stage 1": "130–139 or 80–89", "Stage 2": "≥140 or ≥90",
+              "Crisis": "≥180 or ≥120"}
+    for i, row in stage_df.iterrows():
+        s = row["stage"]
+        bracket = f"({labels[s]})"
+        _line(y - 0.025 - i * 0.020,
+              f"{s:<10}  {bracket:<22} {int(row['count']):>4}  "
+              f"({row['pct']:>5.1f}%)")
+
+    y = 0.39
+    _head(y, "TIME IN RANGE")
+    _line(y - 0.025,
+          f"Above ESH home threshold (≥135/85):  {esh_above} readings "
+          f"({esh_pct:.1f}%)")
+    _line(y - 0.045,
+          f"Days with ≥1 Stage-2 reading:  {days_s2}/{days_total} "
+          f"({days_s2/days_total*100:.0f}%)")
+    _line(y - 0.065,
+          f"All-clean days (<135/85 throughout):  {days_clean}/{days_total} "
+          f"({days_clean/days_total*100:.0f}%)")
+
+    y = 0.29
+    _head(y, "HIGHEST SINGLE READING")
+    _line(y - 0.025,
+          f"{cs['max_sys']}/{cs['max_dia']} mmHg, pulse {cs['max_pulse']} bpm "
+          f"on {cs['max_ts']}")
+
+    fig.text(0.5, 0.05,
+             f"Generated {datetime.now():%Y-%m-%d %H:%M}  ·  "
+             "Not medical advice; for clinical interpretation by a "
+             "qualified clinician.",
+             ha="center", fontsize=8.5, color="#888")
     pdf.savefig(fig); plt.close(fig); pages += 1
+
+    # Time in range — visual breakdown to complement the cover summary
+    if (HERE / "time_in_range.png").exists():
+        fig = new_page(pdf, "Time in range — ACC/AHA stage distribution")
+        fig.text(0.5, 0.875,
+                 "Top: percentage of all readings in each stage.  "
+                 "Bottom: per-day breakdown showing the shift in stage "
+                 "distribution over the reporting window.",
+                 ha="center", fontsize=9, color="#555")
+        add_image(fig, HERE / "time_in_range.png", top=0.85, bottom=0.04)
+        pdf.savefig(fig); plt.close(fig); pages += 1
 
     # Trend over time (landscape)
     fig = new_page(pdf, "Trend over time")

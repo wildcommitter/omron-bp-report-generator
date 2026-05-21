@@ -7,9 +7,19 @@ Context for Claude Code working in this repo.
 A small data-analysis pipeline for OMRON Complete blood-pressure CSV
 exports (Spanish locale: `Fecha`, `Hora`, `Sistólica`, `Diastólica`,
 `Pulso`, …). The output is a multi-page PDF (or Markdown) report plus
-intermediate CSVs and PNG charts. Includes a cardiology-oriented
-diurnal-pattern page that surfaces the morning-surge proxy
-(`peak 06–10h − trough 00–06h`) as a single number.
+intermediate CSVs and PNG charts.
+
+Cardiology-oriented additions on the PDF:
+
+* a **clinical-summary cover page** with day/night means, nocturnal
+  dip %, morning surge, ACC/AHA stage distribution, and ESH home-BP
+  time-in-range numbers — i.e. the headlines a clinician will scan
+  first;
+* a **time-in-range page** showing the overall ACC/AHA distribution
+  plus a per-day stacked-bar of the same stages over the reporting
+  window;
+* a **diurnal-pattern page** that surfaces the morning-surge proxy
+  (`peak 06–10h − trough 00–06h`) as a single number.
 
 ## Code layout
 

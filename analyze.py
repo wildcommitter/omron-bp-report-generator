@@ -291,6 +291,167 @@ fig4.suptitle(f"Diurnal pattern — mean ± IQR by hour of day  "
 fig4.tight_layout(rect=[0, 0, 1, 0.96])
 fig4.savefig("diurnal.png", dpi=150)
 
+# === Clinical summary metrics ===
+# ACC/AHA stage per individual reading.
+STAGE_ORDER = ["Normal", "Elevated", "Stage 1", "Stage 2", "Crisis"]
+STAGE_COLORS = {
+    "Normal":   "#2ca02c",
+    "Elevated": "#fdd835",
+    "Stage 1":  "#ff7f0e",
+    "Stage 2":  "#d62728",
+    "Crisis":   "#7b1fa2",
+}
+
+def stage(s, d):
+    if s >= 180 or d >= 120: return "Crisis"
+    if s >= 140 or d >= 90:  return "Stage 2"
+    if s >= 130 or d >= 80:  return "Stage 1"
+    if s >= 120:             return "Elevated"
+    return "Normal"
+
+df["stage"] = [stage(s, d) for s, d in zip(df["sys"], df["dia"])]
+stage_counts = df["stage"].value_counts().reindex(STAGE_ORDER, fill_value=0)
+stage_pct = (stage_counts / len(df) * 100).round(1)
+
+# ESH day/night convention: day 07–23, night 23–07.
+_hr = df["ts"].dt.hour
+day_mask = (_hr >= 7) & (_hr < 23)
+night_mask = ~day_mask
+day_sys, day_dia = df.loc[day_mask, "sys"].mean(), df.loc[day_mask, "dia"].mean()
+night_sys, night_dia = df.loc[night_mask, "sys"].mean(), df.loc[night_mask, "dia"].mean()
+
+def _dip(d, n):
+    return (d - n) / d * 100 if d and pd.notna(d) else None
+
+dip_sys = _dip(day_sys, night_sys)
+dip_dia = _dip(day_dia, night_dia)
+
+def _dipper_label(d):
+    if d is None or pd.isna(d): return "—"
+    if d > 20:  return "extreme dipper"
+    if d >= 10: return "normal dipper"
+    if d >= 0:  return "non-dipper"
+    return "reverse dipper"
+
+# ESH home-BP threshold: ≥135/85.
+esh_above = ((df["sys"] >= 135) | (df["dia"] >= 85)).sum()
+esh_above_pct = esh_above / len(df) * 100
+
+# Per-day flags: worst stage seen that day, and whether all readings clean.
+df_day = df.assign(date=df["ts"].dt.date)
+by_day = df_day.groupby("date")
+days_total = by_day.ngroups
+def _worst(stages):
+    return max(stages, key=STAGE_ORDER.index)
+day_worst = by_day["stage"].agg(_worst)
+days_stage2 = day_worst.isin(["Stage 2", "Crisis"]).sum()
+day_all_clean = by_day.apply(
+    lambda g: ((g["sys"] < 135) & (g["dia"] < 85)).all(), include_groups=False)
+days_all_clean = int(day_all_clean.sum())
+
+# Single highest systolic reading.
+_max_idx = df["sys"].idxmax()
+max_row = df.loc[_max_idx]
+
+clinical = pd.DataFrame({
+    "key": [
+        "day_sys_mean", "day_dia_mean", "day_n",
+        "night_sys_mean", "night_dia_mean", "night_n",
+        "dip_sys_pct", "dip_dia_pct", "dip_pattern",
+        "esh_above_n", "esh_above_pct",
+        "days_total", "days_stage2", "days_all_clean",
+        "max_sys", "max_dia", "max_pulse", "max_ts",
+    ],
+    "value": [
+        f"{day_sys:.1f}", f"{day_dia:.1f}", int(day_mask.sum()),
+        f"{night_sys:.1f}", f"{night_dia:.1f}", int(night_mask.sum()),
+        f"{dip_sys:.1f}" if dip_sys is not None and pd.notna(dip_sys) else "—",
+        f"{dip_dia:.1f}" if dip_dia is not None and pd.notna(dip_dia) else "—",
+        _dipper_label(dip_sys),
+        int(esh_above), f"{esh_above_pct:.1f}",
+        days_total, int(days_stage2), days_all_clean,
+        int(max_row["sys"]), int(max_row["dia"]), int(max_row["pulse"]),
+        f"{max_row['ts']:%Y-%m-%d %H:%M}",
+    ],
+})
+clinical.to_csv("clinical_summary.csv", index=False)
+
+pd.DataFrame({
+    "stage": STAGE_ORDER,
+    "count": stage_counts.values,
+    "pct":   stage_pct.values,
+}).to_csv("stage_counts.csv", index=False)
+
+print(f"\nClinical headline numbers:")
+print(f"  Day {day_sys:.1f}/{day_dia:.1f} (n={int(day_mask.sum())})  "
+      f"Night {night_sys:.1f}/{night_dia:.1f} (n={int(night_mask.sum())})")
+print(f"  Nocturnal dip: sys {dip_sys:.1f}%  dia {dip_dia:.1f}%  "
+      f"({_dipper_label(dip_sys)})")
+print(f"  ESH ≥135/85: {esh_above} of {len(df)} readings ({esh_above_pct:.1f}%)")
+print(f"  Days with ≥1 Stage-2: {int(days_stage2)}/{days_total}, "
+      f"all-clean days: {days_all_clean}/{days_total}")
+
+# === Time-in-range chart ===
+fig5 = plt.figure(figsize=(12, 7))
+gs5 = fig5.add_gridspec(2, 1, height_ratios=[1, 3.2], hspace=0.45)
+
+# Top: overall horizontal stacked bar
+ax_top = fig5.add_subplot(gs5[0])
+left = 0
+for s in STAGE_ORDER:
+    p = stage_pct[s]
+    if p <= 0:
+        continue
+    ax_top.barh(0, p, left=left, color=STAGE_COLORS[s],
+                edgecolor="white", lw=2,
+                label=f"{s}  {int(stage_counts[s])}  ({p:.1f}%)")
+    if p >= 4:
+        ax_top.text(left + p/2, 0, f"{s}\n{p:.1f}%",
+                    ha="center", va="center", fontsize=9,
+                    fontweight="bold",
+                    color="white" if s in ("Stage 2", "Stage 1", "Crisis")
+                    else "#222")
+    left += p
+ax_top.set_xlim(0, 100)
+ax_top.set_ylim(-0.5, 0.5)
+ax_top.set_yticks([])
+ax_top.set_xlabel("% of readings")
+ax_top.set_title("Overall distribution by ACC/AHA stage", fontweight="bold")
+ax_top.legend(loc="upper center", bbox_to_anchor=(0.5, -0.55),
+              ncol=5, fontsize=9, frameon=False)
+
+# Bottom: per-day stacked bars
+ax_bot = fig5.add_subplot(gs5[1])
+days_sorted = sorted(by_day.groups.keys())
+day_pcts = {s: [] for s in STAGE_ORDER}
+for d in days_sorted:
+    g = df_day[df_day["date"] == d]
+    total = len(g)
+    for s in STAGE_ORDER:
+        day_pcts[s].append((g["stage"] == s).sum() / total * 100)
+
+bottom = [0.0] * len(days_sorted)
+for s in STAGE_ORDER:
+    if sum(day_pcts[s]) <= 0:
+        continue
+    ax_bot.bar(range(len(days_sorted)), day_pcts[s],
+               bottom=bottom, color=STAGE_COLORS[s],
+               width=0.85, label=s, edgecolor="white", lw=0.3)
+    bottom = [b + p for b, p in zip(bottom, day_pcts[s])]
+
+ax_bot.set_xticks(range(0, len(days_sorted), 2))
+ax_bot.set_xticklabels([f"{d:%d %b}" for d in days_sorted[::2]],
+                       rotation=45, ha="right", fontsize=8)
+ax_bot.set_ylabel("% of day's readings")
+ax_bot.set_ylim(0, 100)
+ax_bot.set_title("Daily breakdown — each column = one day, stack height proportional to stage",
+                 fontweight="bold")
+
+fig5.suptitle("Time in range — ACC/AHA classification",
+              fontsize=14, fontweight="bold")
+fig5.tight_layout(rect=[0, 0, 1, 0.96])
+fig5.savefig("time_in_range.png", dpi=150)
+
 plt.style.use("seaborn-v0_8-whitegrid")
 fig, axes = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
 
@@ -364,5 +525,6 @@ fig.savefig("vitals.png", dpi=150)
 fig.savefig("vitals.pdf")
 print(f"\nwrote vitals.png, vitals.pdf, daily_stats.csv, period_stats.csv, "
       f"periods.png, periods_weekly.png, weekly_period_stats.csv, "
-      f"diurnal.png, hourly_stats.csv  "
+      f"diurnal.png, hourly_stats.csv, clinical_summary.csv, "
+      f"stage_counts.csv, time_in_range.png  "
       f"({len(df)} readings, {len(daily)} days)")
