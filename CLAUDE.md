@@ -11,10 +11,13 @@ intermediate CSVs and PNG charts.
 
 ## Code layout
 
-- `bp_utils.py` — shared helpers, currently just `parse_dt()` which
-  reads Fecha/Hora pairs from any of seven Latin-alphabet locales plus
-  ISO/numeric formats. Imported by both `analyze.py` and
-  `_render_pdf.py`.
+- `bp_utils.py` — shared helpers. `load_omron_csv(path)` is the entry
+  point: it reads the CSV, locates the date / time / sys / dia / pulse
+  columns by semantic kind (so headers in Spanish / English / French /
+  German / Italian / Portuguese / Dutch all work), parses the
+  date values via `parse_dt()`, and returns a tidy DataFrame with the
+  standard column names `ts`, `sys`, `dia`, `pulse`. Imported by both
+  `analyze.py` and `_render_pdf.py`.
 - `analyze.py` — single pandas script that computes daily / period /
   weekly statistics, writes the per-stat CSVs, and renders every PNG
   via matplotlib. Single source of truth for the data plumbing.
@@ -58,10 +61,12 @@ podman build -t bp-report .        # rebuild container image
   hardcoded constants.
 - **8-hour period boundaries** start at 07:00 and are defined by the
   `period()` function in `analyze.py`. Change there to shift them.
-- **Locale-tolerant date parsing** lives in `bp_utils.parse_dt()`,
-  supporting Spanish / English / French / German / Italian / Portuguese
-  / Dutch month abbreviations plus ISO 8601 and numeric formats. Column
-  names (`Fecha`, `Hora`, …) are still expected to be Spanish.
+- **Locale-tolerant CSV ingest** lives in `bp_utils.load_omron_csv()`,
+  which handles both the date *values* (Spanish / English / French /
+  German / Italian / Portuguese / Dutch month abbreviations + ISO 8601 +
+  numeric formats) and the *column headers* (Fecha/Date/Datum/Data,
+  Sistólica/Systolic/Systolique/…). Anything reading `input.csv`
+  should call this rather than `pd.read_csv` directly.
 - **NaN cells** in the PDF tables render as `—`, not `nan`
   (`add_table()` in `_render_pdf.py` handles this).
 

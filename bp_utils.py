@@ -1,15 +1,15 @@
-"""Locale-tolerant date parsing for OMRON CSV exports.
+"""Locale-tolerant reading of OMRON Complete CSV exports.
 
-OMRON Complete exports the `Fecha`/`Hora` cells in whatever locale the
-device is configured to use. This module supports the major
-Latin-alphabet locales (Spanish, English, French, German, Italian,
-Portuguese, Dutch) plus ISO 8601 and common numeric formats — pandas
-takes the first crack via `to_datetime`, then a month-alias table
-covers the localised abbreviations that dateutil doesn't recognise.
+OMRON exports both column headers and `Fecha`/`Hora` values in whatever
+locale the device is configured to use. This module handles both:
 
-NOTE: column names in the CSV (e.g. "Fecha" vs "Date") are still
-expected to be in the original Spanish form. Only the cell *values*
-are locale-tolerant here.
+  * `parse_dt()` turns a date/time pair into a Timestamp, accepting
+    Spanish, English, French, German, Italian, Portuguese and Dutch
+    month abbreviations plus ISO 8601 and common numeric formats.
+  * `load_omron_csv()` reads a CSV, finds the relevant columns by
+    semantic kind (date / time / sys / dia / pulse) regardless of the
+    header language, and returns a tidy DataFrame with the standard
+    column names `ts`, `sys`, `dia`, `pulse`.
 """
 from __future__ import annotations
 
@@ -86,3 +86,50 @@ def parse_dt(date_str: str, time_str: str) -> pd.Timestamp:
         year += 2000
     hh, mm = map(int, time_str.split(":"))
     return pd.Timestamp(year, month, day, hh, mm)
+
+
+# Header patterns for the columns we care about. Match the column-name
+# start (anchored with ^) so unit suffixes like "(mmHg)" or "(bpm)" are
+# tolerated. Case-insensitive.
+_COLUMN_PATTERNS = {
+    "date":  r"^\s*(fecha|date|datum|data)\b",
+    "time":  r"^\s*(hora|heure|time|uhrzeit|ora|tijd)\b",
+    "sys":   r"^\s*(sist[oó]lic|systolic|systolique|systolisch)",
+    "dia":   r"^\s*(diast[oó]lic|diastolic|diastolique|diastolisch)",
+    "pulse": r"^\s*(puls|pouls|pulso|polso|hartslag)",
+}
+
+
+def find_column(df: pd.DataFrame, kind: str) -> str:
+    """Return the actual column name in `df` matching the semantic `kind`."""
+    pat = re.compile(_COLUMN_PATTERNS[kind], re.I)
+    for col in df.columns:
+        if pat.search(str(col)):
+            return col
+    raise KeyError(
+        f"No column matching {kind!r} in CSV header: {list(df.columns)}")
+
+
+def load_omron_csv(path) -> pd.DataFrame:
+    """Read an OMRON Complete CSV in any supported locale into a tidy frame.
+
+    Returns a DataFrame with columns `ts` (Timestamp), `sys`, `dia`, `pulse`
+    (int), sorted ascending by `ts`. Non-numeric rows (averages, blanks,
+    etc.) are dropped.
+    """
+    df = pd.read_csv(path)
+    cols = {kind: find_column(df, kind)
+            for kind in ("date", "time", "sys", "dia", "pulse")}
+
+    sys_numeric = pd.to_numeric(df[cols["sys"]], errors="coerce")
+    df = df[sys_numeric.notna()].copy()
+
+    df["ts"] = [parse_dt(d, t)
+                for d, t in zip(df[cols["date"]], df[cols["time"]])]
+    df = df.rename(columns={cols["sys"]: "sys",
+                            cols["dia"]: "dia",
+                            cols["pulse"]: "pulse"})
+    return (df[["ts", "sys", "dia", "pulse"]]
+            .astype({"sys": int, "dia": int, "pulse": int})
+            .sort_values("ts")
+            .reset_index(drop=True))

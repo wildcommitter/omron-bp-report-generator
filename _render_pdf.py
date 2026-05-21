@@ -8,18 +8,11 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 
-from bp_utils import parse_dt
+from bp_utils import load_omron_csv
 
 HERE = Path.cwd()
 
-df = pd.read_csv(HERE / "input.csv")
-df = df[pd.to_numeric(df["Sistólica (mmHg)"], errors="coerce").notna()].copy()
-df["ts"] = [parse_dt(d, t) for d, t in zip(df["Fecha"], df["Hora"])]
-df = df.rename(columns={"Sistólica (mmHg)": "sys",
-                        "Diastólica (mmHg)": "dia",
-                        "Pulso (ppm)": "pulse"})
-df = df[["ts", "sys", "dia", "pulse"]].astype(
-    {"sys": int, "dia": int, "pulse": int}).sort_values("ts")
+df = load_omron_csv(HERE / "input.csv")
 
 t0, t1 = df["ts"].min(), df["ts"].max()
 days = df["ts"].dt.date.nunique()

@@ -6,7 +6,7 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from bp_utils import parse_dt
+from bp_utils import load_omron_csv
 
 
 def autoscale(values, pad=5, step=10):
@@ -15,14 +15,7 @@ def autoscale(values, pad=5, step=10):
     hi = math.ceil((max(values) + pad) / step) * step
     return lo, hi
 
-df = pd.read_csv("input.csv")
-df = df[pd.to_numeric(df["Sistólica (mmHg)"], errors="coerce").notna()].copy()
-df["ts"] = [parse_dt(d, t) for d, t in zip(df["Fecha"], df["Hora"])]
-df = df.rename(columns={"Sistólica (mmHg)": "sys",
-                        "Diastólica (mmHg)": "dia",
-                        "Pulso (ppm)": "pulse"})
-df = df[["ts", "sys", "dia", "pulse"]].astype(
-    {"sys": int, "dia": int, "pulse": int}).sort_values("ts")
+df = load_omron_csv("input.csv")
 
 # 8-hour periods starting at 07:00: morning 07–15, evening 15–23, night 23–07
 def period(h):
