@@ -69,4 +69,4 @@ echo "output: $OUT_ABS"
 exec podman run --rm \
     -v "$OUT_ABS:/data:Z" \
     -v "$INPUT_ABS:/input.csv:ro,Z" \
-    "$IMAGE" "${FORMAT_ARGS[@]}"
+    "$IMAGE" /input.csv "${FORMAT_ARGS[@]}"

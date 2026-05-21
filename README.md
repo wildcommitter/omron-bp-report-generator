@@ -54,16 +54,19 @@ any CSV path as an argument and handles the volume mounts for you:
 A copy of the source CSV ends up alongside the report (renamed to
 `input.csv`) so each output directory is self-contained.
 
-You can also drop down to raw podman if you have an `input.csv` already
-sitting in a directory:
+You can also drop down to raw podman. The entrypoint accepts an optional
+CSV path so the source file doesn't have to be named `input.csv`:
 
 ```
-podman run --rm -v "$(pwd):/data:Z" bp-report          # PDF report
-podman run --rm -v "$(pwd):/data:Z" bp-report --md     # Markdown report
+podman run --rm -v "$(pwd):/data:Z" bp-report                       # /data/input.csv → PDF
+podman run --rm -v "$(pwd):/data:Z" bp-report --md                  # /data/input.csv → MD
+podman run --rm -v "$(pwd):/data:Z" bp-report my_readings.csv       # /data/my_readings.csv → PDF
+podman run --rm -v "$(pwd):/data:Z" bp-report my_readings.csv --md  # both options together
 ```
 
-The image bundles only the scripts and Python deps (~400 MB). No conda
-env, no source data — everything else lives in the mounted volume.
+Relative paths resolve inside `/data`. The CSV path and `--pdf`/`--md`
+can appear in any order. The image bundles only the scripts and Python
+deps (~400 MB) — no conda env, no source data.
 
 ### Pulling the prebuilt image
 
