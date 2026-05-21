@@ -6,20 +6,14 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from bp_utils import parse_dt
+
 
 def autoscale(values, pad=5, step=10):
     """Round (min-pad, max+pad) outwards to multiples of step."""
     lo = math.floor((min(values) - pad) / step) * step
     hi = math.ceil((max(values) + pad) / step) * step
     return lo, hi
-
-MONTHS = {"ene":1,"feb":2,"mar":3,"abr":4,"may":5,"jun":6,
-          "jul":7,"ago":8,"sep":9,"oct":10,"nov":11,"dic":12}
-
-def parse_dt(d, t):
-    parts = d.replace(".", "").split()
-    return pd.Timestamp(int(parts[2]), MONTHS[parts[1].lower()], int(parts[0]),
-                        int(t.split(":")[0]), int(t.split(":")[1]))
 
 df = pd.read_csv("input.csv")
 df = df[pd.to_numeric(df["Sistólica (mmHg)"], errors="coerce").notna()].copy()

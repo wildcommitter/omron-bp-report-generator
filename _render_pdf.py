@@ -8,14 +8,9 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 
-HERE = Path.cwd()
-MONTHS = {"ene":1,"feb":2,"mar":3,"abr":4,"may":5,"jun":6,
-          "jul":7,"ago":8,"sep":9,"oct":10,"nov":11,"dic":12}
+from bp_utils import parse_dt
 
-def parse_dt(d, t):
-    parts = d.replace(".", "").split()
-    return pd.Timestamp(int(parts[2]), MONTHS[parts[1].lower()], int(parts[0]),
-                        int(t.split(":")[0]), int(t.split(":")[1]))
+HERE = Path.cwd()
 
 df = pd.read_csv(HERE / "input.csv")
 df = df[pd.to_numeric(df["Sistólica (mmHg)"], errors="coerce").notna()].copy()

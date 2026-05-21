@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir \
         "scipy>=1.13,<2" \
         "seaborn>=0.13,<0.14"
 
-COPY analyze.py _render_pdf.py make_report.sh entrypoint.sh /app/
+COPY analyze.py _render_pdf.py bp_utils.py make_report.sh entrypoint.sh /app/
 RUN chmod +x /app/make_report.sh /app/entrypoint.sh
 
 # /data is the volume mount point: it holds input.csv and receives outputs
