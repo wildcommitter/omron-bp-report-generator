@@ -7,7 +7,9 @@ Context for Claude Code working in this repo.
 A small data-analysis pipeline for OMRON Complete blood-pressure CSV
 exports (Spanish locale: `Fecha`, `Hora`, `Sistólica`, `Diastólica`,
 `Pulso`, …). The output is a multi-page PDF (or Markdown) report plus
-intermediate CSVs and PNG charts.
+intermediate CSVs and PNG charts. Includes a cardiology-oriented
+diurnal-pattern page that surfaces the morning-surge proxy
+(`peak 06–10h − trough 00–06h`) as a single number.
 
 ## Code layout
 

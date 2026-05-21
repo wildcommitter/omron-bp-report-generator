@@ -10,6 +10,7 @@ input.csv
 daily_stats.csv
 period_stats.csv
 weekly_period_stats.csv
+hourly_stats.csv
 report.md
 
 # Misc

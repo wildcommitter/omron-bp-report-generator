@@ -202,6 +202,95 @@ fig3.suptitle(f"Weekly trend by 8h period — "
 fig3.tight_layout(rect=[0, 0, 1, 0.95])
 fig3.savefig("periods_weekly.png", dpi=150)
 
+# 24-hour diurnal curve — mean ± IQR per hour-of-day for each metric.
+# Useful for spotting non-dipper patterns and morning surge.
+hourly = (df.assign(hour=df["ts"].dt.hour)
+            .groupby("hour")
+            .agg(sys_mean=("sys", "mean"),
+                 sys_q1=("sys", lambda x: x.quantile(0.25)),
+                 sys_q3=("sys", lambda x: x.quantile(0.75)),
+                 dia_mean=("dia", "mean"),
+                 dia_q1=("dia", lambda x: x.quantile(0.25)),
+                 dia_q3=("dia", lambda x: x.quantile(0.75)),
+                 pulse_mean=("pulse", "mean"),
+                 pulse_q1=("pulse", lambda x: x.quantile(0.25)),
+                 pulse_q3=("pulse", lambda x: x.quantile(0.75)),
+                 n=("sys", "count"))
+            .round(1))
+hourly.to_csv("hourly_stats.csv")
+
+# Morning surge proxy: max hourly mean over 06–10h minus min over 00–06h.
+def _surge(metric):
+    pre = hourly.loc[hourly.index < 6, f"{metric}_mean"]
+    morn = hourly.loc[(hourly.index >= 6) & (hourly.index <= 10),
+                      f"{metric}_mean"]
+    if pre.empty or morn.empty:
+        return None, None, None
+    return morn.max() - pre.min(), pre.idxmin(), morn.idxmax()
+
+surge_info = {m: _surge(m) for m in ("sys", "dia", "pulse")}
+print("\nMorning surge (max 06–10h − min 00–06h):")
+for m, (delta, hmin, hmax) in surge_info.items():
+    if delta is not None:
+        print(f"  {m:5s}  +{delta:5.1f}   (trough {hmin:02d}h → peak {hmax:02d}h)")
+    else:
+        print(f"  {m:5s}  (insufficient data in 00–10h window)")
+
+fig4 = plt.figure(figsize=(12, 9))
+gs = fig4.add_gridspec(4, 1, height_ratios=[3, 3, 3, 1], hspace=0.15)
+diurnal_panels = [
+    (gs[0], "sys",   "Systolic (mmHg)",  "#1f77b4",
+     [(120, "#fdd835", "Elevated"), (130, "#ff7f0e", "Stage 1"),
+      (140, "#d62728", "Stage 2")]),
+    (gs[1], "dia",   "Diastolic (mmHg)", "#9467bd",
+     [(80, "#ff7f0e", "Stage 1"), (90, "#d62728", "Stage 2")]),
+    (gs[2], "pulse", "Pulse (bpm)",      "#e377c2",
+     [(100, "#ff7f0e", "Tachycardia")]),
+]
+hrs = list(hourly.index)
+last_ax = None
+for spec, metric, label, color, thresholds in diurnal_panels:
+    ax = fig4.add_subplot(spec, sharex=last_ax)
+    last_ax = ax
+    ax.fill_between(hrs, hourly[f"{metric}_q1"], hourly[f"{metric}_q3"],
+                    color=color, alpha=0.25, label="IQR (25–75%)")
+    ax.plot(hrs, hourly[f"{metric}_mean"], color=color, lw=2.2,
+            marker="o", ms=6, label="hourly mean")
+    for thr, tcolor, tlabel in thresholds:
+        ax.axhline(thr, color=tcolor, lw=1, ls="--", alpha=0.6)
+        ax.text(23.3, thr, tlabel, fontsize=8, color=tcolor,
+                ha="right", va="bottom")
+    mean = hourly[f"{metric}_mean"]
+    if not mean.empty:
+        lo_h, hi_h = mean.idxmin(), mean.idxmax()
+        ax.annotate(f"min {mean[lo_h]:.0f} @ {lo_h:02d}h",
+                    xy=(lo_h, mean[lo_h]), xytext=(0, -16),
+                    textcoords="offset points", ha="center", fontsize=8.5,
+                    color="#2e7d32", fontweight="bold")
+        ax.annotate(f"max {mean[hi_h]:.0f} @ {hi_h:02d}h",
+                    xy=(hi_h, mean[hi_h]), xytext=(0, 10),
+                    textcoords="offset points", ha="center", fontsize=8.5,
+                    color="#c62828", fontweight="bold")
+    ax.set_ylabel(label, fontweight="bold")
+    ax.legend(loc="upper right", fontsize=8, framealpha=0.9)
+    ax.grid(True, alpha=0.3)
+
+# Sample-count bar at the bottom — shows which hours have sparse coverage.
+ax_n = fig4.add_subplot(gs[3], sharex=last_ax)
+ax_n.bar(hrs, hourly["n"], color="#555", alpha=0.7)
+ax_n.set_ylabel("n", fontweight="bold")
+ax_n.set_xlim(-0.5, 23.5)
+ax_n.set_xticks(range(0, 24, 2))
+ax_n.set_xticklabels([f"{h:02d}h" for h in range(0, 24, 2)])
+ax_n.set_xlabel("Hour of day")
+ax_n.grid(True, alpha=0.3, axis="y")
+
+fig4.suptitle(f"Diurnal pattern — mean ± IQR by hour of day  "
+              f"({df['ts'].min():%d %b} → {df['ts'].max():%d %b %Y})",
+              fontsize=14, fontweight="bold")
+fig4.tight_layout(rect=[0, 0, 1, 0.96])
+fig4.savefig("diurnal.png", dpi=150)
+
 plt.style.use("seaborn-v0_8-whitegrid")
 fig, axes = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
 
@@ -274,5 +363,6 @@ fig.tight_layout(rect=[0, 0, 1, 0.97])
 fig.savefig("vitals.png", dpi=150)
 fig.savefig("vitals.pdf")
 print(f"\nwrote vitals.png, vitals.pdf, daily_stats.csv, period_stats.csv, "
-      f"periods.png, periods_weekly.png, weekly_period_stats.csv  "
+      f"periods.png, periods_weekly.png, weekly_period_stats.csv, "
+      f"diurnal.png, hourly_stats.csv  "
       f"({len(df)} readings, {len(daily)} days)")
