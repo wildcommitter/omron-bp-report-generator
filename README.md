@@ -69,11 +69,13 @@ env, no source data — everything else lives in the mounted volume.
 
 Each push to `main` and every `v*` tag triggers
 `.github/workflows/build-image.yml`, which builds the image with Buildah
-and pushes it to GitHub Container Registry. Pull with:
+and pushes it to GitHub Container Registry. The image is public, so no
+login is needed:
 
 ```
-podman pull ghcr.io/<owner>/<repo>:latest
-BP_REPORT_IMAGE=ghcr.io/<owner>/<repo>:latest ./bp-report data.csv
+podman pull ghcr.io/wildcommitter/omron-bp-report-generator:latest
+BP_REPORT_IMAGE=ghcr.io/wildcommitter/omron-bp-report-generator:latest \
+    ./bp-report data.csv
 ```
 
 The launcher honors `$BP_REPORT_IMAGE` so you can point it at any tag
