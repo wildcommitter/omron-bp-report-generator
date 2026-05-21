@@ -18,6 +18,11 @@ Cardiology-oriented additions on the PDF:
 * a **time-in-range page** showing the overall ACC/AHA distribution
   plus a per-day stacked-bar of the same stages over the reporting
   window;
+* a **weekly clinical digest** table that reproduces the cover-page
+  headlines (mean BP, Δ vs prior week, dip %, morning surge,
+  ESH-above %, Stage-2 days) for every ISO week present in the data,
+  flagging dip/surge cells where night coverage is empty or sparse
+  (`n_n<5`);
 * a **diurnal-pattern page** that surfaces the morning-surge proxy
   (`peak 06–10h − trough 00–06h`) as a single number.
 

@@ -13,6 +13,7 @@ weekly_period_stats.csv
 hourly_stats.csv
 clinical_summary.csv
 stage_counts.csv
+weekly_clinical_summary.csv
 report.md
 
 # Misc

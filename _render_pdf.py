@@ -256,6 +256,58 @@ with PdfPages(out) as pdf:
         add_image(fig, HERE / "time_in_range.png", top=0.85, bottom=0.04)
         pdf.savefig(fig); plt.close(fig); pages += 1
 
+    # Weekly clinical digest — one row per ISO week, all the cover-page
+    # headlines reproduced for each week so trajectories are visible.
+    wc_path = HERE / "weekly_clinical_summary.csv"
+    if wc_path.exists():
+        wc = pd.read_csv(wc_path)
+        wc["week_start"] = pd.to_datetime(wc["week_start"])
+
+        def _delta(v):
+            if pd.isna(v):
+                return "—"
+            return f"{v:+.1f}"
+
+        def _val(v, fmt="{:.1f}", suffix=""):
+            return "—" if pd.isna(v) else fmt.format(v) + suffix
+
+        rows = []
+        for _, r in wc.iterrows():
+            rows.append([
+                r["week_start"].strftime("%d %b"),
+                int(r["n"]),
+                _val(r["sys_mean"]),
+                _val(r["dia_mean"]),
+                _delta(r["d_sys"]),
+                _delta(r["d_dia"]),
+                _val(r["dip_sys_pct"], suffix="%") +
+                    (f"  (n_n={int(r['night_n'])})" if not pd.isna(r["night_n"]) and r["night_n"] < 5 else ""),
+                _val(r["surge_sys"], fmt="+{:.1f}") if not pd.isna(r["surge_sys"]) else "—",
+                _val(r["esh_above_pct"], suffix="%"),
+                f"{int(r['days_stage2'])}/{int(r['days_in_week'])}",
+            ])
+        wc_table = pd.DataFrame(rows, columns=[
+            "Week of", "n", "Sys", "Dia", "Δ Sys", "Δ Dia",
+            "Dip % sys", "Surge sys", "ESH ≥135/85", "S2 days",
+        ])
+
+        fig = new_page(pdf, "Weekly clinical digest")
+        fig.text(0.5, 0.875,
+                 "Cover-page metrics, recomputed per ISO week. Dip and "
+                 "surge show '—' when night coverage is empty; flagged "
+                 "with night-n when it's <5 readings.",
+                 ha="center", fontsize=9, color="#555")
+        add_table(fig, wc_table, top=0.85, bottom=0.10,
+                  fontsize=9, row_scale=1.4,
+                  col_widths=[0.09, 0.05, 0.07, 0.07, 0.07, 0.07,
+                              0.12, 0.08, 0.10, 0.08])
+        fig.text(0.5, 0.07,
+                 "Reference thresholds: ESH home BP ≥135/85 mmHg · "
+                 "ACC/AHA Stage 2 ≥140/90 · Normal dipper ≥10% · "
+                 "Excessive surge ≥20 mmHg.",
+                 ha="center", fontsize=8.5, color="#555", style="italic")
+        pdf.savefig(fig); plt.close(fig); pages += 1
+
     # Trend over time (landscape)
     fig = new_page(pdf, "Trend over time")
     fig.text(0.5, 0.875,

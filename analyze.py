@@ -382,6 +382,58 @@ pd.DataFrame({
     "pct":   stage_pct.values,
 }).to_csv("stage_counts.csv", index=False)
 
+# === Per-week clinical digest ===
+# Re-aggregate the cover-page clinical metrics for each ISO week, so a
+# clinician can scan trajectories week-by-week.
+def _week_clinical(group):
+    n = len(group)
+    hr_in = group["ts"].dt.hour
+    day_in = (hr_in >= 7) & (hr_in < 23)
+    day_sys = group.loc[day_in, "sys"].mean()
+    day_dia = group.loc[day_in, "dia"].mean()
+    night_sys = group.loc[~day_in, "sys"].mean()
+    night_dia = group.loc[~day_in, "dia"].mean()
+    night_n = int((~day_in).sum())
+    dip_sys = ((day_sys - night_sys) / day_sys * 100
+               if pd.notna(day_sys) and pd.notna(night_sys) and day_sys
+               else None)
+    hourly_g = group.assign(_h=hr_in).groupby("_h")["sys"].mean()
+    pre = hourly_g.loc[hourly_g.index < 6]
+    morn = hourly_g.loc[(hourly_g.index >= 6) & (hourly_g.index <= 10)]
+    surge_sys = (morn.max() - pre.min()
+                 if not pre.empty and not morn.empty else None)
+    esh_n = int(((group["sys"] >= 135) | (group["dia"] >= 85)).sum())
+    days_in_week = group["ts"].dt.date.nunique()
+    days_s2 = sum(
+        1 for _, gg in group.groupby(group["ts"].dt.date)
+        if ((gg["sys"] >= 140) | (gg["dia"] >= 90)).any())
+    return pd.Series({
+        "n": n,
+        "sys_mean":   round(group["sys"].mean(),   1),
+        "dia_mean":   round(group["dia"].mean(),   1),
+        "pulse_mean": round(group["pulse"].mean(), 1),
+        "night_n": night_n,
+        "day_sys":   round(day_sys,   1) if pd.notna(day_sys)   else None,
+        "day_dia":   round(day_dia,   1) if pd.notna(day_dia)   else None,
+        "night_sys": round(night_sys, 1) if pd.notna(night_sys) else None,
+        "night_dia": round(night_dia, 1) if pd.notna(night_dia) else None,
+        "dip_sys_pct": round(dip_sys,  1) if dip_sys   is not None else None,
+        "surge_sys":   round(surge_sys, 1) if surge_sys is not None else None,
+        "esh_above_n":   esh_n,
+        "esh_above_pct": round(esh_n / n * 100, 1) if n else None,
+        "days_in_week":  days_in_week,
+        "days_stage2":   days_s2,
+    })
+
+df_with_week = df.assign(
+    week_start=df["ts"].dt.to_period("W-SUN").apply(lambda p: p.start_time))
+weekly_clinical = (df_with_week.groupby("week_start", group_keys=True)
+                   .apply(_week_clinical, include_groups=False))
+weekly_clinical["d_sys"] = weekly_clinical["sys_mean"].diff().round(1)
+weekly_clinical["d_dia"] = weekly_clinical["dia_mean"].diff().round(1)
+weekly_clinical["d_dip"] = weekly_clinical["dip_sys_pct"].diff().round(1)
+weekly_clinical.to_csv("weekly_clinical_summary.csv")
+
 print(f"\nClinical headline numbers:")
 print(f"  Day {day_sys:.1f}/{day_dia:.1f} (n={int(day_mask.sum())})  "
       f"Night {night_sys:.1f}/{night_dia:.1f} (n={int(night_mask.sum())})")
@@ -526,5 +578,6 @@ fig.savefig("vitals.pdf")
 print(f"\nwrote vitals.png, vitals.pdf, daily_stats.csv, period_stats.csv, "
       f"periods.png, periods_weekly.png, weekly_period_stats.csv, "
       f"diurnal.png, hourly_stats.csv, clinical_summary.csv, "
-      f"stage_counts.csv, time_in_range.png  "
+      f"stage_counts.csv, time_in_range.png, "
+      f"weekly_clinical_summary.csv  "
       f"({len(df)} readings, {len(daily)} days)")
