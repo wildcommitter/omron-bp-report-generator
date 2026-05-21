@@ -1,0 +1,33 @@
+# Local conda env
+env/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Personal health data — keep out of version control
+input.csv
+
+# Generated artefacts (rebuild from analyze.py + make_report.sh)
+vitals.png
+vitals.pdf
+vitals.svg
+periods.png
+periods_weekly.png
+systolic.svg
+daily_stats.csv
+period_stats.csv
+weekly_period_stats.csv
+report.pdf
+report.md
+
+# Anaconda installer (large, not source)
+Anaconda*.sh
+
+# Editor / tooling
+.claude/
+.idea/
+.vscode/
+*.swp
+.DS_Store

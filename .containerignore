@@ -1,0 +1,19 @@
+# Local dev artefacts that shouldn't go into the image
+env/
+__pycache__/
+*.pyc
+
+# Data and outputs — these belong in the mounted /data volume
+input.csv
+*.png
+*.pdf
+daily_stats.csv
+period_stats.csv
+weekly_period_stats.csv
+report.md
+
+# Misc
+.git/
+.gitignore
+README.md
+Anaconda*.sh

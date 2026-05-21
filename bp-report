@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# bp-report — launcher for the bp-report podman image.
+# Mounts INPUT.csv into the container and writes the report next to it
+# (or into a separate output dir if -o is given).
+set -euo pipefail
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") INPUT.csv [-o OUTPUT_DIR] [--pdf | --md]
+
+Build a vitals report from INPUT.csv using the bp-report container.
+
+Arguments:
+  INPUT.csv              path to an OMRON CSV export
+  -o, --output DIR       where to write outputs (default: directory of INPUT)
+  --pdf                  produce report.pdf (default)
+  --md                   produce report.md
+  -h, --help             show this help
+
+Build the image first with:
+  podman build -t bp-report .
+EOF
+}
+
+INPUT=""
+OUTPUT_DIR=""
+FORMAT_ARGS=()
+IMAGE="${BP_REPORT_IMAGE:-bp-report}"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -o|--output) OUTPUT_DIR="$2"; shift 2 ;;
+        --md|--markdown|--pdf) FORMAT_ARGS+=("$1"); shift ;;
+        -h|--help) usage; exit 0 ;;
+        --) shift; break ;;
+        -*) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
+        *)
+            if [[ -z $INPUT ]]; then INPUT="$1"; shift
+            else echo "unexpected arg: $1" >&2; usage >&2; exit 2
+            fi ;;
+    esac
+done
+
+if [[ -z $INPUT ]]; then
+    echo "error: INPUT.csv is required" >&2
+    usage >&2
+    exit 2
+fi
+if [[ ! -f $INPUT ]]; then
+    echo "error: not a regular file: $INPUT" >&2
+    exit 1
+fi
+
+INPUT_ABS="$(realpath "$INPUT")"
+if [[ -z $OUTPUT_DIR ]]; then
+    OUTPUT_DIR="$(dirname "$INPUT_ABS")"
+fi
+mkdir -p "$OUTPUT_DIR"
+OUT_ABS="$(realpath "$OUTPUT_DIR")"
+
+if ! podman image exists "$IMAGE"; then
+    echo "error: image '$IMAGE' not found. Build it first:" >&2
+    echo "  podman build -t $IMAGE $(dirname "$(realpath "$0")")" >&2
+    exit 1
+fi
+
+echo "input : $INPUT_ABS"
+echo "output: $OUT_ABS"
+exec podman run --rm \
+    -v "$OUT_ABS:/data:Z" \
+    -v "$INPUT_ABS:/input.csv:ro,Z" \
+    "$IMAGE" "${FORMAT_ARGS[@]}"
