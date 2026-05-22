@@ -3,6 +3,7 @@
 from datetime import datetime
 from pathlib import Path
 
+import matplotlib.dates as mdates
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -386,5 +387,156 @@ with PdfPages(out) as pdf:
     add_table(fig, daily_stats[pls_cols], top=0.86, bottom=0.04,
               fontsize=9, col_widths=PLS_WIDTHS, row_scale=1.15)
     pdf.savefig(fig); plt.close(fig); pages += 1
+
+    # === Per-week mini reports — one page per ISO week ===
+    def _stage(s, d):
+        if s >= 180 or d >= 120: return "Crisis"
+        if s >= 140 or d >= 90:  return "Stage 2"
+        if s >= 130 or d >= 80:  return "Stage 1"
+        if s >= 120:             return "Elevated"
+        return "Normal"
+    _STAGE_COLORS = {"Normal":"#2ca02c", "Elevated":"#fdd835",
+                     "Stage 1":"#ff7f0e", "Stage 2":"#d62728",
+                     "Crisis":"#7b1fa2"}
+    _LIGHT_TXT_STAGES = {"Stage 1", "Stage 2", "Crisis"}
+
+    def _render_weekly_page(pdf_, df_w, wk, wc_row, wc_prev):
+        n_r = len(df_w)
+        n_d = df_w["ts"].dt.date.nunique()
+        fig_ = plt.figure(figsize=(11, 8.5))
+        fig_.suptitle(f"Weekly mini report — Week of {wk:%d %b %Y}",
+                      fontsize=16, fontweight="bold", y=0.97)
+        fig_.text(0.5, 0.935,
+                  f"{df_w['ts'].min():%d %b} → {df_w['ts'].max():%d %b %Y}  ·  "
+                  f"{n_r} readings  ·  {n_d} days",
+                  ha="center", fontsize=10, color="#555")
+
+        # ----- left column (text) -----
+        L = 0.04
+        def _h(y, t):
+            fig_.text(L, y, t, fontsize=11, fontweight="bold", color="#1f3a5f")
+        def _l(y, t, color="#222"):
+            fig_.text(L + 0.012, y, t, fontsize=9,
+                      family="monospace", color=color)
+
+        y = 0.87
+        _h(y, "CLINICAL METRICS")
+        _l(y - 0.025,
+           f"Sys     {df_w['sys'].mean():>6.1f} mmHg")
+        _l(y - 0.045,
+           f"Dia     {df_w['dia'].mean():>6.1f} mmHg")
+        _l(y - 0.065,
+           f"Pulse   {df_w['pulse'].mean():>6.1f} bpm")
+
+        y = 0.77
+        _h(y, "VARIANCE")
+        for i, m in enumerate(("sys", "dia", "pulse")):
+            sd = df_w[m].std()
+            mean = df_w[m].mean()
+            cv = sd / mean * 100 if mean else 0
+            lo, hi = int(df_w[m].min()), int(df_w[m].max())
+            _l(y - 0.025 - i * 0.020,
+               f"{m.capitalize():6}  SD {sd:>4.1f}  CV {cv:>4.1f}%  "
+               f"range {lo}–{hi}")
+
+        y = 0.65
+        _h(y, "PATTERN")
+        dip_v = wc_row["dip_sys_pct"]
+        surge_v = wc_row["surge_sys"]
+        dip_str = (f"{dip_v:>5.1f}%" if pd.notna(dip_v) else "  —  ")
+        surge_str = (f"+{surge_v:>4.1f}" if pd.notna(surge_v) else "  —  ")
+        _l(y - 0.025, f"Nocturnal dip sys   {dip_str}")
+        _l(y - 0.045, f"Morning surge sys   {surge_str}")
+        _l(y - 0.065,
+           f"ESH ≥135/85         {int(wc_row['esh_above_n'])}/{n_r}  "
+           f"({wc_row['esh_above_pct']:.1f}%)")
+        _l(y - 0.085,
+           f"Stage-2 days        {int(wc_row['days_stage2'])}/"
+           f"{int(wc_row['days_in_week'])}")
+
+        y = 0.50
+        _h(y, "Δ vs PRIOR WEEK")
+        if wc_prev is None:
+            _l(y - 0.025, "(first week — no prior to compare)",
+               color="#888")
+        else:
+            for i, m in enumerate(("sys", "dia", "pulse")):
+                d = wc_row[f"{m}_mean"] - wc_prev[f"{m}_mean"]
+                arrow = "↓" if d < -0.05 else ("↑" if d > 0.05 else "→")
+                color = ("#2e7d32" if d < -0.05
+                         else "#c62828" if d > 0.05
+                         else "#888")
+                _l(y - 0.025 - i * 0.020,
+                   f"{m.capitalize():6}  {arrow}  {d:+5.1f}", color=color)
+
+        # ----- right column (3-panel trend) -----
+        daily_w = (df_w.set_index("ts").resample("D")
+                    .mean(numeric_only=True).dropna())
+        trend_specs = [
+            ("sys",   "Sys (mmHg)",   "#1f77b4",
+             [120, 130, 140], (90, 170)),
+            ("dia",   "Dia (mmHg)",   "#9467bd",
+             [80, 90],        (55, 100)),
+            ("pulse", "Pulse (bpm)",  "#e377c2",
+             [100],           (60, 140)),
+        ]
+        for i, (m, lab, c, thrs, ylim) in enumerate(trend_specs):
+            ax = fig_.add_axes([0.40, 0.72 - i * 0.21, 0.55, 0.18])
+            ax.scatter(df_w["ts"], df_w[m], s=14, color=c, alpha=0.35)
+            ax.plot(daily_w.index, daily_w[m], "o-",
+                    color=c, lw=2, ms=5)
+            for thr in thrs:
+                ax.axhline(thr, color="#888", lw=0.6, ls="--", alpha=0.5)
+            ax.set_ylabel(lab, fontweight="bold", fontsize=8.5)
+            ax.set_ylim(*ylim)
+            ax.tick_params(axis="y", labelsize=7)
+            ax.grid(True, alpha=0.25)
+            if i < 2:
+                ax.set_xticklabels([])
+            else:
+                ax.xaxis.set_major_locator(mdates.DayLocator())
+                ax.xaxis.set_major_formatter(mdates.DateFormatter("%d %b"))
+                plt.setp(ax.get_xticklabels(),
+                         rotation=30, ha="right", fontsize=7)
+
+        # ----- bottom: time-in-range bar -----
+        ax_tir = fig_.add_axes([0.40, 0.10, 0.55, 0.085])
+        stages_w = [_stage(s, d) for s, d in zip(df_w["sys"], df_w["dia"])]
+        left = 0
+        for label in ["Normal", "Elevated", "Stage 1", "Stage 2", "Crisis"]:
+            cnt = stages_w.count(label)
+            pct = cnt / n_r * 100 if n_r else 0
+            if pct > 0:
+                ax_tir.barh(0, pct, left=left,
+                            color=_STAGE_COLORS[label],
+                            edgecolor="white", lw=2)
+                if pct >= 9:
+                    ax_tir.text(left + pct / 2, 0,
+                                f"{label}\n{pct:.0f}%",
+                                ha="center", va="center",
+                                fontsize=7.5, fontweight="bold",
+                                color=("white" if label in _LIGHT_TXT_STAGES
+                                       else "#222"))
+                left += pct
+        ax_tir.set_xlim(0, 100)
+        ax_tir.set_ylim(-0.5, 0.5)
+        ax_tir.set_yticks([])
+        ax_tir.set_xlabel("% of readings", fontsize=8)
+        ax_tir.set_title("Time in range (ACC/AHA)",
+                         fontweight="bold", fontsize=9.5, pad=4)
+
+        pdf_.savefig(fig_)
+        plt.close(fig_)
+
+    df_with_week = df.assign(
+        week_start=df["ts"].dt.to_period("W-SUN")
+                   .apply(lambda p: p.start_time))
+    wc_full = pd.read_csv(HERE / "weekly_clinical_summary.csv")
+    wc_full["week_start"] = pd.to_datetime(wc_full["week_start"])
+    for i, (wk, df_wk) in enumerate(df_with_week.groupby("week_start")):
+        wc_row = wc_full.iloc[i]
+        wc_prev = wc_full.iloc[i - 1] if i > 0 else None
+        _render_weekly_page(pdf, df_wk, wk, wc_row, wc_prev)
+        pages += 1
 
 print(f"wrote {out.name} ({out.stat().st_size // 1024} KB, {pages} pages)")

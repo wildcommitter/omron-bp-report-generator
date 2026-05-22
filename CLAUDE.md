@@ -23,6 +23,13 @@ Cardiology-oriented additions on the PDF:
   ESH-above %, Stage-2 days) for every ISO week present in the data,
   flagging dip/surge cells where night coverage is empty or sparse
   (`n_n<5`);
+* a **weekly mini-report page** rendered per ISO week, showing that
+  week's clinical metrics, variance (SD / CV / range), dipper /
+  surge / ESH / Stage-2 patterns, Δ-vs-prior-week with up/down arrows,
+  three per-day trend panels for sys / dia / pulse, and a
+  time-in-range bar for the week. Drawn at PDF-render time from `df`
+  filtered to each week, plus `weekly_clinical_summary.csv` for the
+  precomputed metrics;
 * a **diurnal-pattern page** that surfaces the morning-surge proxy
   (`peak 06–10h − trough 00–06h`) as a single number.
 
