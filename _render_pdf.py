@@ -528,6 +528,187 @@ with PdfPages(out) as pdf:
         pdf_.savefig(fig_)
         plt.close(fig_)
 
+    # Phenotype chip color: green = controlled, amber = borderline/labile/climbing,
+    # red = uncontrolled/crisis/isolated-systolic.
+    PHENOTYPE_COLORS = {
+        "Controlled":        "#2e7d32",
+        "Borderline":        "#f9a825",
+        "Labile":            "#f9a825",
+        "Climbing":          "#f9a825",
+        "Uncontrolled":      "#c62828",
+        "Crisis":            "#7b1fa2",
+        "Isolated-systolic": "#c62828",
+    }
+
+    def _phenotype_chip(fig_, x, y, primary, secondary):
+        color = PHENOTYPE_COLORS.get(primary, "#555")
+        label = primary if not secondary else f"{primary} · {secondary.replace(';', ' · ')}"
+        fig_.text(x, y, label, ha="right", va="center",
+                  fontsize=10.5, fontweight="bold", color="white",
+                  bbox=dict(boxstyle="round,pad=0.5", facecolor=color,
+                            edgecolor=color))
+
+    def _render_weekly_page_sparse(pdf_, df_w, wk, wc_row, wc_prev):
+        n_r = len(df_w)
+        n_d = df_w["ts"].dt.date.nunique()
+        fig_ = plt.figure(figsize=(11, 8.5))
+        fig_.suptitle(f"Weekly mini report — Week of {wk:%d %b %Y}",
+                      fontsize=16, fontweight="bold", y=0.97, x=0.30, ha="center")
+        fig_.text(0.30, 0.935,
+                  f"{df_w['ts'].min():%d %b} → {df_w['ts'].max():%d %b %Y}  ·  "
+                  f"{n_r} readings  ·  {n_d} days  ·  "
+                  f"~{wc_row['readings_per_day_median']:.0f}/day",
+                  ha="center", fontsize=10, color="#555")
+        _phenotype_chip(fig_, 0.96, 0.955,
+                        wc_row["phenotype_primary"],
+                        wc_row.get("phenotype_secondary") or "")
+
+        # ----- left column (text) -----
+        L = 0.04
+        def _h(y, t):
+            fig_.text(L, y, t, fontsize=11, fontweight="bold", color="#1f3a5f")
+        def _l(y, t, color="#222"):
+            fig_.text(L + 0.012, y, t, fontsize=9,
+                      family="monospace", color=color)
+
+        y = 0.87
+        _h(y, "CLINICAL METRICS")
+        _l(y - 0.025, f"Sys     {df_w['sys'].mean():>6.1f} mmHg")
+        _l(y - 0.045, f"Dia     {df_w['dia'].mean():>6.1f} mmHg")
+        _l(y - 0.065, f"Pulse   {df_w['pulse'].mean():>6.1f} bpm")
+        _l(y - 0.085, f"PP      {wc_row['pp_mean']:>6.1f} mmHg "
+                      f"(max {int(wc_row['pp_max'])})")
+
+        y = 0.74
+        _h(y, "Δ vs PRIOR WEEK")
+        if wc_prev is None:
+            _l(y - 0.025, "(first week — no prior to compare)", color="#888")
+        else:
+            for i, m in enumerate(("sys", "dia", "pulse")):
+                d = wc_row[f"{m}_mean"] - wc_prev[f"{m}_mean"]
+                arrow = "↓" if d < -0.05 else ("↑" if d > 0.05 else "→")
+                # Down arrow on BP/HR = improvement; up = worsening.
+                color = ("#2e7d32" if d < -0.05
+                         else "#c62828" if d > 0.05
+                         else "#888")
+                _l(y - 0.025 - i * 0.020,
+                   f"{m.capitalize():6}  {arrow}  {d:+5.1f}", color=color)
+
+        y = 0.62
+        _h(y, "VARIABILITY")
+        def _arvline(label, m, arv_key):
+            sd = df_w[m].std()
+            mean = df_w[m].mean()
+            cv = sd / mean * 100 if mean else 0
+            arv = wc_row.get(arv_key)
+            arv_str = f"{arv:>4.1f}" if pd.notna(arv) else "  —"
+            return (f"{label:6}  ARV {arv_str}  SD {sd:>4.1f}  CV {cv:>4.1f}%")
+        for i, (label, m, arv_key) in enumerate([
+            ("Sys",   "sys",   "arv_s"),
+            ("Dia",   "dia",   "arv_d"),
+            ("Pulse", "pulse", "arv_p"),
+        ]):
+            _l(y - 0.025 - i * 0.020, _arvline(label, m, arv_key))
+
+        y = 0.49
+        _h(y, "CONTROL")
+        _l(y - 0.025,
+           f"ESH ≥135/85    {int(wc_row['esh_above_n'])}/{n_r}  "
+           f"({wc_row['esh_above_pct']:.1f}%)")
+        _l(y - 0.045,
+           f"In-target streak    {int(wc_row['streak_in_target'])} days")
+        _l(y - 0.065,
+           f"Out-of-target streak {int(wc_row['streak_out_of_target'])} days")
+        _l(y - 0.085,
+           f"Stage-2 days       {int(wc_row['days_stage2'])}/"
+           f"{int(wc_row['days_in_week'])}")
+
+        # ----- right column (3-panel trend: sys+dia / HR / PP) -----
+        daily_w = (df_w.set_index("ts").resample("D")
+                    .mean(numeric_only=True).dropna(subset=["sys"]))
+
+        # Panel 1: sys + dia overlay
+        ax1 = fig_.add_axes([0.40, 0.72, 0.55, 0.18])
+        ax1.scatter(df_w["ts"], df_w["sys"], s=14, color="#1f77b4", alpha=0.35)
+        ax1.scatter(df_w["ts"], df_w["dia"], s=14, color="#9467bd", alpha=0.35)
+        ax1.plot(daily_w.index, daily_w["sys"], "o-",
+                 color="#1f77b4", lw=2, ms=5, label="Sys")
+        ax1.plot(daily_w.index, daily_w["dia"], "o-",
+                 color="#9467bd", lw=2, ms=5, label="Dia")
+        for thr in (120, 130, 140):
+            ax1.axhline(thr, color="#888", lw=0.6, ls="--", alpha=0.5)
+        for thr in (80, 90):
+            ax1.axhline(thr, color="#888", lw=0.6, ls=":", alpha=0.5)
+        ax1.set_ylabel("BP (mmHg)", fontweight="bold", fontsize=8.5)
+        ax1.set_ylim(50, 170)
+        ax1.tick_params(axis="y", labelsize=7)
+        ax1.grid(True, alpha=0.25)
+        ax1.legend(loc="upper right", fontsize=7, framealpha=0.9, ncol=2)
+        ax1.set_xticklabels([])
+
+        # Panel 2: HR with 60/80/100 bands
+        ax2 = fig_.add_axes([0.40, 0.51, 0.55, 0.18])
+        ax2.axhspan(60, 80, color="#2ca02c", alpha=0.08)
+        ax2.axhspan(80, 100, color="#fdd835", alpha=0.12)
+        ax2.axhspan(100, 140, color="#d62728", alpha=0.12)
+        ax2.scatter(df_w["ts"], df_w["pulse"], s=14, color="#e377c2", alpha=0.35)
+        ax2.plot(daily_w.index, daily_w["pulse"], "o-",
+                 color="#e377c2", lw=2, ms=5)
+        for thr, lab in [(60, "60"), (80, "80"), (100, "100")]:
+            ax2.axhline(thr, color="#888", lw=0.6, ls="--", alpha=0.5)
+            ax2.text(1.0, thr, f" {lab}", transform=ax2.get_yaxis_transform(),
+                     fontsize=7, color="#555", va="center")
+        ax2.set_ylabel("Pulse (bpm)", fontweight="bold", fontsize=8.5)
+        ax2.set_ylim(50, 140)
+        ax2.tick_params(axis="y", labelsize=7)
+        ax2.grid(True, alpha=0.25)
+        ax2.set_xticklabels([])
+
+        # Panel 3: PP daily bar
+        ax3 = fig_.add_axes([0.40, 0.30, 0.55, 0.18])
+        daily_pp = daily_w["sys"] - daily_w["dia"]
+        ax3.bar(daily_pp.index, daily_pp.values, width=0.7,
+                color="#8c8ad8", edgecolor="white")
+        ax3.axhline(40, color="#888", lw=0.6, ls="--", alpha=0.5)
+        ax3.axhline(60, color="#c62828", lw=0.8, ls="--", alpha=0.6)
+        ax3.text(1.0, 60, " wide (≥60)", transform=ax3.get_yaxis_transform(),
+                 fontsize=7, color="#c62828", va="center")
+        ax3.set_ylabel("PP (mmHg)", fontweight="bold", fontsize=8.5)
+        ax3.set_ylim(0, max(80, daily_pp.max() + 5) if not daily_pp.empty else 80)
+        ax3.tick_params(axis="y", labelsize=7)
+        ax3.grid(True, alpha=0.25, axis="y")
+        ax3.xaxis.set_major_locator(mdates.DayLocator())
+        ax3.xaxis.set_major_formatter(mdates.DateFormatter("%d %b"))
+        plt.setp(ax3.get_xticklabels(), rotation=30, ha="right", fontsize=7)
+
+        # ----- bottom: time-in-range bar -----
+        ax_tir = fig_.add_axes([0.40, 0.10, 0.55, 0.085])
+        stages_w = [_stage(s, d) for s, d in zip(df_w["sys"], df_w["dia"])]
+        left = 0
+        for label in ["Normal", "Elevated", "Stage 1", "Stage 2", "Crisis"]:
+            cnt = stages_w.count(label)
+            pct = cnt / n_r * 100 if n_r else 0
+            if pct > 0:
+                ax_tir.barh(0, pct, left=left,
+                            color=_STAGE_COLORS[label],
+                            edgecolor="white", lw=2)
+                if pct >= 9:
+                    ax_tir.text(left + pct / 2, 0, f"{label}\n{pct:.0f}%",
+                                ha="center", va="center",
+                                fontsize=7.5, fontweight="bold",
+                                color=("white" if label in _LIGHT_TXT_STAGES
+                                       else "#222"))
+                left += pct
+        ax_tir.set_xlim(0, 100)
+        ax_tir.set_ylim(-0.5, 0.5)
+        ax_tir.set_yticks([])
+        ax_tir.set_xlabel("% of readings", fontsize=8)
+        ax_tir.set_title("Time in range (ACC/AHA)",
+                         fontweight="bold", fontsize=9.5, pad=4)
+
+        pdf_.savefig(fig_)
+        plt.close(fig_)
+
     df_with_week = df.assign(
         week_start=df["ts"].dt.to_period("W-SUN")
                    .apply(lambda p: p.start_time))
@@ -536,7 +717,10 @@ with PdfPages(out) as pdf:
     for i, (wk, df_wk) in enumerate(df_with_week.groupby("week_start")):
         wc_row = wc_full.iloc[i]
         wc_prev = wc_full.iloc[i - 1] if i > 0 else None
-        _render_weekly_page(pdf, df_wk, wk, wc_row, wc_prev)
+        if bool(wc_row.get("is_dense", True)):
+            _render_weekly_page(pdf, df_wk, wk, wc_row, wc_prev)
+        else:
+            _render_weekly_page_sparse(pdf, df_wk, wk, wc_row, wc_prev)
         pages += 1
 
 print(f"wrote {out.name} ({out.stat().st_size // 1024} KB, {pages} pages)")
