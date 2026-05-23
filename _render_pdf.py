@@ -269,12 +269,12 @@ with PdfPages(out) as pdf:
              ha="center", fontsize=8.5, color="#888")
     pdf.savefig(fig); plt.close(fig); pages += 1
 
-    # Time in range — visual breakdown to complement the cover summary
+    # Time in range — per-day stacked breakdown.  Overall-window
+    # proportions live on the cover; this page is the trajectory view.
     if (HERE / "time_in_range.png").exists():
-        fig = new_page(pdf, "Time in range — ACC/AHA stage distribution")
+        fig = new_page(pdf, "Time in range — daily stage distribution")
         fig.text(0.5, 0.875,
-                 "Top: percentage of all readings in each stage.  "
-                 "Bottom: per-day breakdown showing the shift in stage "
+                 "Per-day breakdown showing the shift in stage "
                  "distribution over the reporting window.",
                  ha="center", fontsize=9, color="#555")
         add_image(fig, HERE / "time_in_range.png", top=0.85, bottom=0.04)

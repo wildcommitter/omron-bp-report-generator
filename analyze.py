@@ -643,36 +643,10 @@ print(f"  Days with ≥1 Stage-2: {int(days_stage2)}/{days_total}, "
       f"all-clean days: {days_all_clean}/{days_total}")
 
 # === Time-in-range chart ===
-fig5 = plt.figure(figsize=(12, 7))
-gs5 = fig5.add_gridspec(2, 1, height_ratios=[1, 3.2], hspace=0.45)
-
-# Top: overall horizontal stacked bar
-ax_top = fig5.add_subplot(gs5[0])
-left = 0
-for s in STAGE_ORDER:
-    p = stage_pct[s]
-    if p <= 0:
-        continue
-    ax_top.barh(0, p, left=left, color=STAGE_COLORS[s],
-                edgecolor="white", lw=2,
-                label=f"{s}  {int(stage_counts[s])}  ({p:.1f}%)")
-    if p >= 4:
-        ax_top.text(left + p/2, 0, f"{s}\n{p:.1f}%",
-                    ha="center", va="center", fontsize=9,
-                    fontweight="bold",
-                    color="white" if s in ("Stage 2", "Stage 1", "Crisis")
-                    else "#222")
-    left += p
-ax_top.set_xlim(0, 100)
-ax_top.set_ylim(-0.5, 0.5)
-ax_top.set_yticks([])
-ax_top.set_xlabel("% of readings")
-ax_top.set_title("Overall distribution by ACC/AHA stage", fontweight="bold")
-ax_top.legend(loc="upper center", bbox_to_anchor=(0.5, -0.55),
-              ncol=5, fontsize=9, frameon=False)
-
-# Bottom: per-day stacked bars
-ax_bot = fig5.add_subplot(gs5[1])
+# Per-day stacked stage distribution.  The overall-window proportions are
+# already on the cover-page READING DISTRIBUTION table, so we don't repeat
+# them here as a separate top bar.
+fig5, ax_bot = plt.subplots(figsize=(12, 7))
 days_sorted = sorted(by_day.groups.keys())
 day_pcts = {s: [] for s in STAGE_ORDER}
 for d in days_sorted:
@@ -697,11 +671,10 @@ ax_bot.set_ylabel("% of day's readings")
 ax_bot.set_ylim(0, 100)
 ax_bot.set_title("Daily breakdown — each column = one day, stack height proportional to stage",
                  fontweight="bold")
-
-fig5.suptitle("Time in range — ACC/AHA classification",
-              fontsize=14, fontweight="bold")
-fig5.tight_layout(rect=[0, 0, 1, 0.96])
-fig5.savefig("time_in_range.png", dpi=150)
+ax_bot.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15),
+              ncol=5, fontsize=9, frameon=False)
+fig5.tight_layout()
+fig5.savefig("time_in_range.png", dpi=150, bbox_inches="tight")
 
 plt.style.use("seaborn-v0_8-whitegrid")
 fig, axes = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
