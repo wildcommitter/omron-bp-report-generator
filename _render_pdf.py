@@ -384,37 +384,15 @@ with PdfPages(out) as pdf:
     add_image(fig, HERE / "periods_weekly.png", top=0.88, bottom=0.06)
     pdf.savefig(fig); plt.close(fig); pages += 1
 
-    # Diurnal (24-hour) pattern with morning-surge summary
-    diurnal_csv = HERE / "hourly_stats.csv"
-    if diurnal_csv.exists() and (HERE / "diurnal.png").exists():
-        hourly = pd.read_csv(diurnal_csv).set_index("hour")
-        def _surge_summary(m):
-            pre = hourly.loc[hourly.index < 6, f"{m}_mean"]
-            morn = hourly.loc[(hourly.index >= 6) & (hourly.index <= 10),
-                              f"{m}_mean"]
-            if pre.empty or morn.empty:
-                return "—"
-            return (f"+{morn.max() - pre.min():.1f}  "
-                    f"(min {pre.min():.0f} @ {int(pre.idxmin()):02d}h → "
-                    f"max {morn.max():.0f} @ {int(morn.idxmax()):02d}h)")
-
+    # Diurnal (24-hour) pattern.  Morning-surge numbers live on the cover
+    # page, so this page is purely the chart.
+    if (HERE / "diurnal.png").exists():
         fig = new_page(pdf, "Diurnal pattern by hour of day")
         fig.text(0.5, 0.875,
                  "Hourly mean (± IQR) across all days; bottom row = sample "
-                 "count per hour. Morning surge proxy = peak 06–10h − "
-                 "trough 00–06h.",
+                 "count per hour.",
                  ha="center", fontsize=9, color="#555")
-        # Morning-surge proxy as a small left-aligned block
-        surge_lines = [
-            f"Sys    {_surge_summary('sys')}",
-            f"Dia    {_surge_summary('dia')}",
-            f"Pulse  {_surge_summary('pulse')}",
-        ]
-        for i, line in enumerate(surge_lines):
-            fig.text(0.06, 0.83 - i * 0.022, line,
-                     fontsize=8.5, color="#1f3a5f", fontweight="bold",
-                     family="monospace")
-        add_image(fig, HERE / "diurnal.png", top=0.78, bottom=0.04)
+        add_image(fig, HERE / "diurnal.png", top=0.86, bottom=0.04)
         pdf.savefig(fig); plt.close(fig); pages += 1
 
     # Daily statistics — split across two landscape pages:
