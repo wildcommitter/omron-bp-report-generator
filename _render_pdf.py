@@ -579,6 +579,28 @@ with PdfPages(out) as pdf:
         pdf_.savefig(fig_)
         plt.close(fig_)
 
+    # Window-wide mean+2SD ceiling for per-day outlier flagging
+    OUTLIER_HI = {m: float(df[m].mean() + 2 * df[m].std())
+                  for m in ("sys", "dia", "pulse")}
+
+    def _plot_daily_markers(ax, series, color, ms=6):
+        """Line + per-point markers: weekday=circle, weekend=square,
+        red ring when value exceeds the window-wide mean+2SD ceiling."""
+        m_key = series.name
+        ax.plot(series.index, series.values, color=color, lw=2, zorder=3)
+        for d, v in series.items():
+            if pd.isna(v):
+                continue
+            ts = pd.Timestamp(d)
+            weekend = ts.weekday() >= 5
+            outlier = v > OUTLIER_HI.get(m_key, float("inf"))
+            ax.plot(d, v,
+                    marker=("s" if weekend else "o"),
+                    color=color, ms=ms,
+                    markeredgecolor=("#c62828" if outlier else "white"),
+                    markeredgewidth=(1.8 if outlier else 0.6),
+                    zorder=4)
+
     # Phenotype chip color: green = controlled, amber = borderline/labile/climbing,
     # red = uncontrolled/crisis/isolated-systolic.
     PHENOTYPE_COLORS = {
@@ -705,10 +727,12 @@ with PdfPages(out) as pdf:
         ax1 = fig_.add_axes([0.40, 0.72, 0.55, 0.18])
         ax1.scatter(df_w["ts"], df_w["sys"], s=14, color="#1f77b4", alpha=0.35)
         ax1.scatter(df_w["ts"], df_w["dia"], s=14, color="#9467bd", alpha=0.35)
-        ax1.plot(daily_w.index, daily_w["sys"], "o-",
-                 color="#1f77b4", lw=2, ms=5, label="Sys")
-        ax1.plot(daily_w.index, daily_w["dia"], "o-",
-                 color="#9467bd", lw=2, ms=5, label="Dia")
+        sys_series = daily_w["sys"].rename("sys")
+        dia_series = daily_w["dia"].rename("dia")
+        _plot_daily_markers(ax1, sys_series, "#1f77b4")
+        _plot_daily_markers(ax1, dia_series, "#9467bd")
+        ax1.plot([], [], "o", color="#1f77b4", label="Sys")
+        ax1.plot([], [], "o", color="#9467bd", label="Dia")
         for thr in (120, 130, 140):
             ax1.axhline(thr, color="#888", lw=0.6, ls="--", alpha=0.5)
         for thr in (80, 90):
@@ -726,8 +750,7 @@ with PdfPages(out) as pdf:
         ax2.axhspan(80, 100, color="#fdd835", alpha=0.12)
         ax2.axhspan(100, 140, color="#d62728", alpha=0.12)
         ax2.scatter(df_w["ts"], df_w["pulse"], s=14, color="#e377c2", alpha=0.35)
-        ax2.plot(daily_w.index, daily_w["pulse"], "o-",
-                 color="#e377c2", lw=2, ms=5)
+        _plot_daily_markers(ax2, daily_w["pulse"].rename("pulse"), "#e377c2")
         for thr, lab in [(60, "60"), (80, "80"), (100, "100")]:
             ax2.axhline(thr, color="#888", lw=0.6, ls="--", alpha=0.5)
             ax2.text(1.0, thr, f" {lab}", transform=ax2.get_yaxis_transform(),
@@ -754,6 +777,10 @@ with PdfPages(out) as pdf:
         ax3.xaxis.set_major_locator(mdates.DayLocator())
         ax3.xaxis.set_major_formatter(mdates.DateFormatter("%d %b"))
         plt.setp(ax3.get_xticklabels(), rotation=30, ha="right", fontsize=7)
+
+        fig_.text(0.95, 0.225,
+                  "○ weekday   ◻ weekend   red ring = > window mean+2SD",
+                  ha="right", fontsize=7.5, color="#555", style="italic")
 
         # ----- bottom: time-in-range bar -----
         ax_tir = fig_.add_axes([0.40, 0.10, 0.55, 0.085])
