@@ -16,6 +16,7 @@ def autoscale(values, pad=5, step=10):
     return lo, hi
 
 df = load_omron_csv("input.csv")
+df["pp"] = df["sys"] - df["dia"]   # pulse pressure (arterial-stiffness proxy)
 
 # 8-hour periods starting at 07:00: morning 07–15, evening 15–23, night 23–07
 def period(h):
@@ -411,6 +412,34 @@ def _week_clinical(group):
         if ((gg["sys"] >= 140) | (gg["dia"] >= 90)).any())
     per_day_counts = group.groupby(group["ts"].dt.date).size()
     rpd_median = float(per_day_counts.median()) if not per_day_counts.empty else 0.0
+
+    # Daily means (chronological) drive ARV and streaks so the metrics
+    # behave the same whether the week has 1 reading/day or 12.
+    by_date = group.groupby(group["ts"].dt.date)
+    daily = by_date[["sys", "dia", "pulse"]].mean().sort_index()
+    def _arv(s):
+        diffs = s.dropna().diff().abs().dropna()
+        return round(float(diffs.mean()), 1) if not diffs.empty else None
+    arv_s = _arv(daily["sys"])
+    arv_d = _arv(daily["dia"])
+    arv_p = _arv(daily["pulse"])
+
+    pp_per_reading = group["sys"] - group["dia"]
+    pp_mean = round(float(pp_per_reading.mean()), 1) if not pp_per_reading.empty else None
+    pp_max = int(pp_per_reading.max()) if not pp_per_reading.empty else None
+
+    # Streaks on daily means: a day is "in target" if mean sys < 135 AND mean dia < 85.
+    day_in_target = (daily["sys"] < 135) & (daily["dia"] < 85)
+    def _longest_run(bools):
+        best = run = 0
+        for v in bools:
+            run = run + 1 if v else 0
+            if run > best:
+                best = run
+        return int(best)
+    streak_in = _longest_run(day_in_target.tolist())
+    streak_out = _longest_run((~day_in_target).tolist())
+
     return pd.Series({
         "n": n,
         "sys_mean":   round(group["sys"].mean(),   1),
@@ -429,6 +458,13 @@ def _week_clinical(group):
         "days_stage2":   days_s2,
         "readings_per_day_median": round(rpd_median, 2),
         "is_dense": bool(rpd_median >= DENSITY_THRESHOLD),
+        "arv_s": arv_s,
+        "arv_d": arv_d,
+        "arv_p": arv_p,
+        "pp_mean": pp_mean,
+        "pp_max": pp_max,
+        "streak_in_target": streak_in,
+        "streak_out_of_target": streak_out,
     })
 
 df_with_week = df.assign(
