@@ -385,6 +385,8 @@ pd.DataFrame({
 # === Per-week clinical digest ===
 # Re-aggregate the cover-page clinical metrics for each ISO week, so a
 # clinician can scan trajectories week-by-week.
+DENSITY_THRESHOLD = 3  # median readings/day to count a week as "dense"
+
 def _week_clinical(group):
     n = len(group)
     hr_in = group["ts"].dt.hour
@@ -407,6 +409,8 @@ def _week_clinical(group):
     days_s2 = sum(
         1 for _, gg in group.groupby(group["ts"].dt.date)
         if ((gg["sys"] >= 140) | (gg["dia"] >= 90)).any())
+    per_day_counts = group.groupby(group["ts"].dt.date).size()
+    rpd_median = float(per_day_counts.median()) if not per_day_counts.empty else 0.0
     return pd.Series({
         "n": n,
         "sys_mean":   round(group["sys"].mean(),   1),
@@ -423,6 +427,8 @@ def _week_clinical(group):
         "esh_above_pct": round(esh_n / n * 100, 1) if n else None,
         "days_in_week":  days_in_week,
         "days_stage2":   days_s2,
+        "readings_per_day_median": round(rpd_median, 2),
+        "is_dense": bool(rpd_median >= DENSITY_THRESHOLD),
     })
 
 df_with_week = df.assign(
