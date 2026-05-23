@@ -239,60 +239,63 @@ for m, (delta, hmin, hmax) in surge_info.items():
     else:
         print(f"  {m:5s}  (insufficient data in 00–10h window)")
 
-fig4 = plt.figure(figsize=(12, 9))
-gs = fig4.add_gridspec(4, 1, height_ratios=[3, 3, 3, 1], hspace=0.15)
-diurnal_panels = [
-    (gs[0], "sys",   "Systolic (mmHg)",  "#1f77b4",
-     [(120, "#fdd835", "Elevated"), (130, "#ff7f0e", "Stage 1"),
-      (140, "#d62728", "Stage 2")]),
-    (gs[1], "dia",   "Diastolic (mmHg)", "#9467bd",
-     [(80, "#ff7f0e", "Stage 1"), (90, "#d62728", "Stage 2")]),
-    (gs[2], "pulse", "Pulse (bpm)",      "#e377c2",
-     [(100, "#ff7f0e", "Tachycardia")]),
+# Per-week hourly means: grid of (sys/dia/pulse) × (weeks).  Each cell shows
+# that week's hour-of-day curve so non-dipper / morning-surge patterns can
+# be compared week-over-week instead of averaged across the whole window.
+df_w_hour = df.assign(
+    week_start=df["ts"].dt.to_period("W-SUN").apply(lambda p: p.start_time),
+    hour=df["ts"].dt.hour,
+)
+hourly_by_week = (df_w_hour.groupby(["week_start", "hour"])
+                  .agg(sys=("sys", "mean"),
+                       dia=("dia", "mean"),
+                       pulse=("pulse", "mean"),
+                       n=("sys", "count"))
+                  .round(1))
+weeks_ord = sorted(df_w_hour["week_start"].unique())
+
+metric_specs = [
+    ("sys",   "Systolic",  "#1f77b4", [120, 130, 140], (85, 175)),
+    ("dia",   "Diastolic", "#9467bd", [80, 90],         (55, 105)),
+    ("pulse", "Pulse",     "#e377c2", [100],            (55, 140)),
 ]
-hrs = list(hourly.index)
-last_ax = None
-for spec, metric, label, color, thresholds in diurnal_panels:
-    ax = fig4.add_subplot(spec, sharex=last_ax)
-    last_ax = ax
-    ax.fill_between(hrs, hourly[f"{metric}_q1"], hourly[f"{metric}_q3"],
-                    color=color, alpha=0.25, label="IQR (25–75%)")
-    ax.plot(hrs, hourly[f"{metric}_mean"], color=color, lw=2.2,
-            marker="o", ms=6, label="hourly mean")
-    for thr, tcolor, tlabel in thresholds:
-        ax.axhline(thr, color=tcolor, lw=1, ls="--", alpha=0.6)
-        ax.text(23.3, thr, tlabel, fontsize=8, color=tcolor,
-                ha="right", va="bottom")
-    mean = hourly[f"{metric}_mean"]
-    if not mean.empty:
-        lo_h, hi_h = mean.idxmin(), mean.idxmax()
-        ax.annotate(f"min {mean[lo_h]:.0f} @ {lo_h:02d}h",
-                    xy=(lo_h, mean[lo_h]), xytext=(0, -16),
-                    textcoords="offset points", ha="center", fontsize=8.5,
-                    color="#2e7d32", fontweight="bold")
-        ax.annotate(f"max {mean[hi_h]:.0f} @ {hi_h:02d}h",
-                    xy=(hi_h, mean[hi_h]), xytext=(0, 10),
-                    textcoords="offset points", ha="center", fontsize=8.5,
-                    color="#c62828", fontweight="bold")
-    ax.set_ylabel(label, fontweight="bold")
-    ax.legend(loc="upper right", fontsize=8, framealpha=0.9)
-    ax.grid(True, alpha=0.3)
 
-# Sample-count bar at the bottom — shows which hours have sparse coverage.
-ax_n = fig4.add_subplot(gs[3], sharex=last_ax)
-ax_n.bar(hrs, hourly["n"], color="#555", alpha=0.7)
-ax_n.set_ylabel("n", fontweight="bold")
-ax_n.set_xlim(-0.5, 23.5)
-ax_n.set_xticks(range(0, 24, 2))
-ax_n.set_xticklabels([f"{h:02d}h" for h in range(0, 24, 2)])
-ax_n.set_xlabel("Hour of day")
-ax_n.grid(True, alpha=0.3, axis="y")
+n_w = len(weeks_ord)
+fig4 = plt.figure(figsize=(max(13, 2.4 * n_w + 1.5), 8.5))
+gs = fig4.add_gridspec(3, n_w, hspace=0.18, wspace=0.10)
 
-fig4.suptitle(f"Diurnal pattern — mean ± IQR by hour of day  "
-              f"({df['ts'].min():%d %b} → {df['ts'].max():%d %b %Y})",
-              fontsize=14, fontweight="bold")
-fig4.tight_layout(rect=[0, 0, 1, 0.96])
-fig4.savefig("diurnal.png", dpi=150)
+for row, (metric, label, color, thrs, ylim) in enumerate(metric_specs):
+    for col, w in enumerate(weeks_ord):
+        ax = fig4.add_subplot(gs[row, col])
+        if w in hourly_by_week.index.get_level_values(0):
+            wk = hourly_by_week.loc[w]
+            ax.scatter(df_w_hour.loc[df_w_hour["week_start"] == w, "hour"],
+                       df_w_hour.loc[df_w_hour["week_start"] == w, metric],
+                       s=8, color=color, alpha=0.25, zorder=2)
+            ax.plot(wk.index, wk[metric], color=color, lw=1.8,
+                    marker="o", ms=4, zorder=3)
+        for thr in thrs:
+            ax.axhline(thr, color="#888", lw=0.6, ls="--", alpha=0.5)
+        ax.set_ylim(*ylim)
+        ax.set_xlim(-0.5, 23.5)
+        ax.set_xticks([0, 6, 12, 18])
+        ax.grid(True, alpha=0.25)
+        if row < 2:
+            ax.set_xticklabels([])
+        else:
+            ax.set_xticklabels(["00h", "06h", "12h", "18h"], fontsize=7)
+        if col == 0:
+            ax.set_ylabel(label, fontweight="bold", fontsize=9)
+            ax.tick_params(axis="y", labelsize=7)
+        else:
+            ax.set_yticklabels([])
+            ax.tick_params(axis="y", labelsize=7, left=False)
+        if row == 0:
+            ax.set_title(f"Week of {pd.Timestamp(w):%d %b}",
+                         fontsize=9.5, fontweight="bold")
+
+fig4.tight_layout()
+fig4.savefig("diurnal.png", dpi=150, bbox_inches="tight")
 
 # === Clinical summary metrics ===
 # ACC/AHA stage per individual reading.

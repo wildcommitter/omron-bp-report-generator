@@ -344,13 +344,13 @@ with PdfPages(out) as pdf:
     add_image(fig, HERE / "periods_weekly.png", top=0.88, bottom=0.06)
     pdf.savefig(fig); plt.close(fig); pages += 1
 
-    # Diurnal (24-hour) pattern.  Morning-surge numbers live on the cover
-    # page, so this page is purely the chart.
+    # Diurnal (24-hour) pattern, faceted by ISO week.  Each row is one
+    # metric (sys/dia/pulse); each column is one week's hour-of-day curve.
     if (HERE / "diurnal.png").exists():
         fig = new_page(pdf, "Diurnal pattern by hour of day")
         fig.text(0.5, 0.875,
-                 "Hourly mean (± IQR) across all days; bottom row = sample "
-                 "count per hour.",
+                 "Rows: Sys / Dia / Pulse.  Columns: one ISO week each. "
+                 "Lines are hourly means; faint dots are individual readings.",
                  ha="center", fontsize=9, color="#555")
         add_image(fig, HERE / "diurnal.png", top=0.86, bottom=0.04)
         pdf.savefig(fig); plt.close(fig); pages += 1
