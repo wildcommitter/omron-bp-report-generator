@@ -238,15 +238,15 @@ with PdfPages(out) as pdf:
              ha="center", fontsize=8.5, color="#888")
     pdf.savefig(fig); plt.close(fig); pages += 1
 
-    # Time in range — per-day stacked breakdown.  Overall-window
-    # proportions live on the cover; this page is the trajectory view.
+    # Time in range — daily stacked breakdown, repeated by month (top row
+    # of panels) and by ISO week (bottom row of panels).
     if (HERE / "time_in_range.png").exists():
         fig = new_page(pdf, "Time in range — daily stage distribution")
         fig.text(0.5, 0.875,
-                 "Per-day breakdown showing the shift in stage "
-                 "distribution over the reporting window.",
+                 "Each bar = one day's readings stacked by ACC/AHA stage. "
+                 "Top row: per calendar month. Bottom row: per ISO week.",
                  ha="center", fontsize=9, color="#555")
-        add_image(fig, HERE / "time_in_range.png", top=0.85, bottom=0.04)
+        add_image(fig, HERE / "time_in_range.png", top=0.86, bottom=0.04)
         pdf.savefig(fig); plt.close(fig); pages += 1
 
     # Weekly clinical digest — one row per ISO week, all the cover-page

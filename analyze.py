@@ -643,37 +643,85 @@ print(f"  Days with ≥1 Stage-2: {int(days_stage2)}/{days_total}, "
       f"all-clean days: {days_all_clean}/{days_total}")
 
 # === Time-in-range chart ===
-# Per-day stacked stage distribution.  The overall-window proportions are
-# already on the cover-page READING DISTRIBUTION table, so we don't repeat
-# them here as a separate top bar.
-fig5, ax_bot = plt.subplots(figsize=(12, 7))
+# Per-day stacked stage distribution, faceted by calendar month (top row)
+# and by ISO week (bottom row).  The overall-window proportions live on
+# the cover-page READING DISTRIBUTION table.
+from collections import defaultdict
+from calendar import month_name
+
 days_sorted = sorted(by_day.groups.keys())
-day_pcts = {s: [] for s in STAGE_ORDER}
+day_pcts_by_date = {}
 for d in days_sorted:
     g = df_day[df_day["date"] == d]
     total = len(g)
+    day_pcts_by_date[d] = {s: (g["stage"] == s).sum() / total * 100
+                           for s in STAGE_ORDER}
+
+days_by_month = defaultdict(list)
+for d in days_sorted:
+    days_by_month[(d.year, d.month)].append(d)
+months_order = sorted(days_by_month.keys())
+
+days_by_week = defaultdict(list)
+for d in days_sorted:
+    week_start = pd.Timestamp(d).to_period("W-SUN").start_time.date()
+    days_by_week[week_start].append(d)
+weeks_order = sorted(days_by_week.keys())
+
+def _stack_panel(ax, days, *, title, xfmt="%d"):
+    bottom = [0.0] * len(days)
     for s in STAGE_ORDER:
-        day_pcts[s].append((g["stage"] == s).sum() / total * 100)
+        heights = [day_pcts_by_date[d][s] for d in days]
+        if sum(heights) <= 0:
+            continue
+        ax.bar(range(len(days)), heights, bottom=bottom,
+               color=STAGE_COLORS[s], width=0.85, label=s,
+               edgecolor="white", lw=0.3)
+        bottom = [b + h for b, h in zip(bottom, heights)]
+    ax.set_xticks(range(len(days)))
+    ax.set_xticklabels([f"{d:{xfmt}}" for d in days],
+                       rotation=0, fontsize=7)
+    ax.set_ylim(0, 100)
+    ax.set_yticks([0, 50, 100])
+    ax.set_yticklabels(["0", "50", "100"], fontsize=7)
+    ax.set_title(title, fontsize=10, fontweight="bold", pad=4)
+    ax.tick_params(axis="x", length=0)
 
-bottom = [0.0] * len(days_sorted)
-for s in STAGE_ORDER:
-    if sum(day_pcts[s]) <= 0:
-        continue
-    ax_bot.bar(range(len(days_sorted)), day_pcts[s],
-               bottom=bottom, color=STAGE_COLORS[s],
-               width=0.85, label=s, edgecolor="white", lw=0.3)
-    bottom = [b + p for b, p in zip(bottom, day_pcts[s])]
+fig5 = plt.figure(figsize=(14, 9))
+outer = fig5.add_gridspec(2, 1, height_ratios=[1, 1], hspace=0.45)
 
-ax_bot.set_xticks(range(0, len(days_sorted), 2))
-ax_bot.set_xticklabels([f"{d:%d %b}" for d in days_sorted[::2]],
-                       rotation=45, ha="right", fontsize=8)
-ax_bot.set_ylabel("% of day's readings")
-ax_bot.set_ylim(0, 100)
-ax_bot.set_title("Daily breakdown — each column = one day, stack height proportional to stage",
-                 fontweight="bold")
-ax_bot.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15),
-              ncol=5, fontsize=9, frameon=False)
-fig5.tight_layout()
+gs_m = outer[0].subgridspec(1, len(months_order),
+                            width_ratios=[len(days_by_month[m])
+                                          for m in months_order],
+                            wspace=0.15)
+for i, m in enumerate(months_order):
+    ax = fig5.add_subplot(gs_m[0, i])
+    _stack_panel(ax, days_by_month[m],
+                 title=f"{month_name[m[1]]} {m[0]}", xfmt="%d")
+    if i == 0:
+        ax.set_ylabel("% of day's readings", fontsize=8)
+
+gs_w = outer[1].subgridspec(1, len(weeks_order),
+                            width_ratios=[len(days_by_week[w])
+                                          for w in weeks_order],
+                            wspace=0.20)
+for i, w in enumerate(weeks_order):
+    ax = fig5.add_subplot(gs_w[0, i])
+    _stack_panel(ax, days_by_week[w],
+                 title=f"Week of {w:%d %b}", xfmt="%d")
+    if i == 0:
+        ax.set_ylabel("% of day's readings", fontsize=8)
+
+# Single legend for the whole figure.
+legend_handles = [plt.Rectangle((0, 0), 1, 1, color=STAGE_COLORS[s])
+                  for s in STAGE_ORDER if any(day_pcts_by_date[d][s] > 0
+                                              for d in days_sorted)]
+legend_labels = [s for s in STAGE_ORDER
+                 if any(day_pcts_by_date[d][s] > 0 for d in days_sorted)]
+fig5.legend(legend_handles, legend_labels,
+            loc="lower center", ncol=len(legend_labels),
+            fontsize=9, frameon=False, bbox_to_anchor=(0.5, 0.01))
+fig5.tight_layout(rect=[0.01, 0.04, 0.99, 1.0])
 fig5.savefig("time_in_range.png", dpi=150, bbox_inches="tight")
 
 plt.style.use("seaborn-v0_8-whitegrid")
