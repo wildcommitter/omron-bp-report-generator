@@ -674,6 +674,29 @@ with PdfPages(out) as pdf:
            f"Stage-2 days       {int(wc_row['days_stage2'])}/"
            f"{int(wc_row['days_in_week'])}")
 
+        y = 0.355
+        _h(y, "TREND (slope ± 95% CI)")
+        def _slope_line(label, key, ci_key, unit):
+            s = wc_row.get(key)
+            ci = wc_row.get(ci_key)
+            if pd.isna(s) or pd.isna(ci):
+                return f"{label:6}  —"
+            arrow = "↑" if (s - ci) > 0 else ("↓" if (s + ci) < 0 else "→")
+            color = ("#c62828" if arrow == "↑"
+                     else "#2e7d32" if arrow == "↓"
+                     else "#888")
+            return (f"{label:6}  {arrow}  {s:+.2f} ± {ci:.2f}  {unit}/day"), color
+        for i, (label, k, ck, u) in enumerate([
+            ("Sys",   "slope_s", "slope_s_ci", "mmHg"),
+            ("Dia",   "slope_d", "slope_d_ci", "mmHg"),
+            ("Pulse", "slope_p", "slope_p_ci", "bpm"),
+        ]):
+            res = _slope_line(label, k, ck, u)
+            if isinstance(res, tuple):
+                _l(y - 0.025 - i * 0.020, res[0], color=res[1])
+            else:
+                _l(y - 0.025 - i * 0.020, res, color="#888")
+
         # ----- right column (3-panel trend: sys+dia / HR / PP) -----
         daily_w = (df_w.set_index("ts").resample("D")
                     .mean(numeric_only=True).dropna(subset=["sys"]))

@@ -4,7 +4,9 @@ import math
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
+from scipy.stats import linregress
 
 from bp_utils import load_omron_csv
 
@@ -440,6 +442,20 @@ def _week_clinical(group):
     streak_in = _longest_run(day_in_target.tolist())
     streak_out = _longest_run((~day_in_target).tolist())
 
+    # Within-week trend: slope (mmHg/day or bpm/day) + 95 % CI half-width.
+    # Needs at least 3 daily points; otherwise None.
+    def _slope_ci(s):
+        s = s.dropna()
+        if len(s) < 3:
+            return None, None
+        x = np.array([d.toordinal() for d in s.index], dtype=float)
+        x = x - x[0]
+        r = linregress(x, s.values)
+        return round(float(r.slope), 2), round(float(1.96 * r.stderr), 2)
+    slope_s, slope_s_ci = _slope_ci(daily["sys"])
+    slope_d, slope_d_ci = _slope_ci(daily["dia"])
+    slope_p, slope_p_ci = _slope_ci(daily["pulse"])
+
     crisis_present = bool(((group["sys"] >= 180) | (group["dia"] >= 120)).any())
 
     return pd.Series({
@@ -467,6 +483,9 @@ def _week_clinical(group):
         "pp_max": pp_max,
         "streak_in_target": streak_in,
         "streak_out_of_target": streak_out,
+        "slope_s": slope_s, "slope_s_ci": slope_s_ci,
+        "slope_d": slope_d, "slope_d_ci": slope_d_ci,
+        "slope_p": slope_p, "slope_p_ci": slope_p_ci,
         "crisis_present": crisis_present,
     })
 
@@ -501,9 +520,12 @@ def classify_week(row, prev, prev2):
           and pd.notna(row.get("arv_s"))
           and row["arv_s"] > LABILE_ARV_THRESHOLD):
         primary = "Labile"
-    elif (prev is not None and prev2 is not None
-          and (sys_m - prev["sys_mean"]) >= 3
-          and (prev["sys_mean"] - prev2["sys_mean"]) >= 3):
+    elif ((prev is not None and prev2 is not None
+           and (sys_m - prev["sys_mean"]) >= 3
+           and (prev["sys_mean"] - prev2["sys_mean"]) >= 3)
+          or (pd.notna(row.get("slope_s"))
+              and row["slope_s"] > 0
+              and (row["slope_s"] - row["slope_s_ci"]) > 0)):
         primary = "Climbing"
     elif 130 <= sys_m < 140 or 80 <= dia_m < 90:
         primary = "Borderline"
