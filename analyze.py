@@ -440,6 +440,8 @@ def _week_clinical(group):
     streak_in = _longest_run(day_in_target.tolist())
     streak_out = _longest_run((~day_in_target).tolist())
 
+    crisis_present = bool(((group["sys"] >= 180) | (group["dia"] >= 120)).any())
+
     return pd.Series({
         "n": n,
         "sys_mean":   round(group["sys"].mean(),   1),
@@ -465,6 +467,7 @@ def _week_clinical(group):
         "pp_max": pp_max,
         "streak_in_target": streak_in,
         "streak_out_of_target": streak_out,
+        "crisis_present": crisis_present,
     })
 
 df_with_week = df.assign(
@@ -474,7 +477,74 @@ weekly_clinical = (df_with_week.groupby("week_start", group_keys=True)
 weekly_clinical["d_sys"] = weekly_clinical["sys_mean"].diff().round(1)
 weekly_clinical["d_dia"] = weekly_clinical["dia_mean"].diff().round(1)
 weekly_clinical["d_dip"] = weekly_clinical["dip_sys_pct"].diff().round(1)
+
+# Phenotype classification — single primary label + optional secondary tags.
+# Primary rules are evaluated top-down (first match wins).
+PHENOTYPE_PRIMARY = [
+    "Crisis", "Uncontrolled", "Isolated-systolic", "Labile",
+    "Climbing", "Borderline", "Controlled",
+]
+LABILE_ARV_THRESHOLD = 10        # ARV(sys) mmHg above which "Labile"
+TACHY_HR_THRESHOLD = 80
+BRADY_HR_THRESHOLD = 55
+WIDE_PP_THRESHOLD = 60
+
+def classify_week(row, prev, prev2):
+    sys_m, dia_m = row["sys_mean"], row["dia_mean"]
+    if row.get("crisis_present"):
+        primary = "Crisis"
+    elif sys_m >= 140 or dia_m >= 90:
+        primary = "Uncontrolled"
+    elif sys_m >= 135 and dia_m < 85 and (row.get("pp_mean") or 0) >= WIDE_PP_THRESHOLD:
+        primary = "Isolated-systolic"
+    elif (sys_m < 135 and dia_m < 85
+          and pd.notna(row.get("arv_s"))
+          and row["arv_s"] > LABILE_ARV_THRESHOLD):
+        primary = "Labile"
+    elif (prev is not None and prev2 is not None
+          and (sys_m - prev["sys_mean"]) >= 3
+          and (prev["sys_mean"] - prev2["sys_mean"]) >= 3):
+        primary = "Climbing"
+    elif 130 <= sys_m < 140 or 80 <= dia_m < 90:
+        primary = "Borderline"
+    else:
+        primary = "Controlled"
+
+    secondary = []
+    hr = row.get("pulse_mean")
+    if pd.notna(hr) and hr >= TACHY_HR_THRESHOLD:
+        secondary.append("Tachycardia")
+    if pd.notna(hr) and hr < BRADY_HR_THRESHOLD:
+        secondary.append("Bradycardia")
+    pp = row.get("pp_mean")
+    if (pd.notna(pp) and pp >= WIDE_PP_THRESHOLD
+            and primary != "Isolated-systolic"):
+        secondary.append("Wide-PP")
+    return primary, ";".join(secondary)
+
+_primaries, _secondaries = [], []
+for i in range(len(weekly_clinical)):
+    row = weekly_clinical.iloc[i]
+    prev  = weekly_clinical.iloc[i - 1] if i >= 1 else None
+    prev2 = weekly_clinical.iloc[i - 2] if i >= 2 else None
+    p, s = classify_week(row, prev, prev2)
+    _primaries.append(p)
+    _secondaries.append(s)
+weekly_clinical["phenotype_primary"] = _primaries
+weekly_clinical["phenotype_secondary"] = _secondaries
+
 weekly_clinical.to_csv("weekly_clinical_summary.csv")
+
+# Distribution of phenotypes across the reporting window (for the cover page).
+_phen_counts = weekly_clinical["phenotype_primary"].value_counts()
+_phen_summary = " · ".join(
+    f"{name}×{int(_phen_counts[name])}"
+    for name in PHENOTYPE_PRIMARY if name in _phen_counts.index)
+clinical = pd.concat([clinical, pd.DataFrame({
+    "key": ["phenotype_summary", "weeks_total"],
+    "value": [_phen_summary, len(weekly_clinical)],
+})], ignore_index=True)
+clinical.to_csv("clinical_summary.csv", index=False)
 
 print(f"\nClinical headline numbers:")
 print(f"  Day {day_sys:.1f}/{day_dia:.1f} (n={int(day_mask.sum())})  "
