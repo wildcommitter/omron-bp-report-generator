@@ -20,7 +20,6 @@ days = df["ts"].dt.date.nunique()
 
 period_stats = pd.read_csv(HERE / "period_stats.csv")
 daily_stats = pd.read_csv(HERE / "daily_stats.csv")
-weekly_period = pd.read_csv(HERE / "weekly_period_stats.csv")
 
 # Shorter, non-overlapping column names for tables
 PERIOD_COLS = {
@@ -50,36 +49,6 @@ daily_stats = daily_stats.rename(columns=DAILY_COLS)
 
 PERIOD_WIDTHS = [0.16, 0.06, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08]
 
-# Weekly breakdown — one row per (week, period), with Δ vs same period prior week
-def fmt_delta(v):
-    if pd.isna(v):
-        return "—"
-    return f"{v:+.1f}".replace("+0.0", "0.0")
-
-_period_short = {"1. morning (07–15)": "Morning",
-                 "2. evening (15–23)": "Evening",
-                 "3. night (23–07)":   "Night"}
-weekly_period["week_start"] = pd.to_datetime(weekly_period["week_start"])
-weekly_period = weekly_period.sort_values(["week_start", "period"])
-_wp_rows = []
-_last_week = None
-for _, row in weekly_period.iterrows():
-    week_label = (row["week_start"].strftime("%d %b")
-                  if row["week_start"] != _last_week else "")
-    _wp_rows.append([
-        week_label,
-        _period_short[row["period"]],
-        int(row["n"]),
-        f"{row['sys']:.1f}", fmt_delta(row["d_sys"]),
-        f"{row['dia']:.1f}", fmt_delta(row["d_dia"]),
-        f"{row['pulse']:.1f}", fmt_delta(row["d_pulse"]),
-    ])
-    _last_week = row["week_start"]
-weekly_period_table = pd.DataFrame(_wp_rows, columns=[
-    "Week of", "Period", "n",
-    "Sys", "Δ Sys", "Dia", "Δ Dia", "Pulse", "Δ Pulse",
-])
-WEEKLY_PERIOD_WIDTHS = [0.10, 0.09, 0.05, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08]
 SYS_COLS = ["Sys", "S−", "S+", "S 7d"]
 DIA_COLS = ["Dia", "D−", "D+", "D 7d"]
 PLS_COLS = ["Pls", "P−", "P+", "P 7d"]
@@ -369,17 +338,8 @@ with PdfPages(out) as pdf:
     add_image(fig, HERE / "vitals.png", top=0.85, bottom=0.04)
     pdf.savefig(fig); plt.close(fig); pages += 1
 
-    # 8h period averages — weekly breakdown with Δ vs previous week
-    fig = new_page(pdf, "Averages by 8-hour period — weekly")
-    fig.text(0.5, 0.875,
-             "Each week's average per period, with Δ vs same period the "
-             "prior week. Morning 07–15 · Evening 15–23 · Night 23–07.",
-             ha="center", fontsize=9, color="#555")
-    add_table(fig, weekly_period_table, top=0.85, bottom=0.04,
-              fontsize=8, col_widths=WEEKLY_PERIOD_WIDTHS, row_scale=1.2)
-    pdf.savefig(fig); plt.close(fig); pages += 1
-
-    # Weekly trend (landscape)
+    # Weekly trend (landscape) — chart-form view of the per-week period
+    # averages.  Tabular form was dropped as it duplicated this chart.
     fig = new_page(pdf, "Weekly trend by 8-hour period")
     add_image(fig, HERE / "periods_weekly.png", top=0.88, bottom=0.06)
     pdf.savefig(fig); plt.close(fig); pages += 1
