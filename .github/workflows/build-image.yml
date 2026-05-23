@@ -10,6 +10,8 @@ on:
       - analyze.py
       - _render_pdf.py
       - make_report.sh
+      - omron_merge.sh
+      - bp_utils.py
       - .github/workflows/build-image.yml
   pull_request:
     paths:
@@ -18,6 +20,8 @@ on:
       - analyze.py
       - _render_pdf.py
       - make_report.sh
+      - omron_merge.sh
+      - bp_utils.py
       - .github/workflows/build-image.yml
   workflow_dispatch:
 

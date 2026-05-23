@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 # bp-report — launcher for the bp-report podman image.
-# Mounts INPUT.csv into the container and writes the report next to it
-# (or into a separate output dir if -o is given).
+# Mounts one or more OMRON CSV exports into the container and writes the
+# report next to the first input (or into a separate output dir if -o is given).
+# When more than one input is given, the container merges + dedupes them
+# before producing the report.
 set -euo pipefail
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") INPUT.csv [-o OUTPUT_DIR] [--pdf | --md]
+Usage: $(basename "$0") INPUT.csv [MORE.csv ...] [-o OUTPUT_DIR] [--pdf | --md]
 
-Build a vitals report from INPUT.csv using the bp-report container.
+Build a vitals report from one or more OMRON CSV exports using the bp-report
+container.  Multiple inputs are merged + deduplicated automatically.
 
 Arguments:
-  INPUT.csv              path to an OMRON CSV export
+  INPUT.csv              path to an OMRON CSV export (required, ≥1)
+  MORE.csv ...           additional CSVs; merged with INPUT before analysis
   -o, --output DIR       where to write outputs (default: directory of INPUT)
   --pdf                  produce report.pdf (default)
   --md                   produce report.md
@@ -22,7 +26,7 @@ Build the image first with:
 EOF
 }
 
-INPUT=""
+INPUTS=()
 OUTPUT_DIR=""
 FORMAT_ARGS=()
 IMAGE="${BP_REPORT_IMAGE:-bp-report}"
@@ -34,26 +38,25 @@ while [[ $# -gt 0 ]]; do
         -h|--help) usage; exit 0 ;;
         --) shift; break ;;
         -*) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
-        *)
-            if [[ -z $INPUT ]]; then INPUT="$1"; shift
-            else echo "unexpected arg: $1" >&2; usage >&2; exit 2
-            fi ;;
+        *) INPUTS+=("$1"); shift ;;
     esac
 done
 
-if [[ -z $INPUT ]]; then
-    echo "error: INPUT.csv is required" >&2
+if [[ ${#INPUTS[@]} -eq 0 ]]; then
+    echo "error: at least one INPUT.csv is required" >&2
     usage >&2
     exit 2
 fi
-if [[ ! -f $INPUT ]]; then
-    echo "error: not a regular file: $INPUT" >&2
-    exit 1
-fi
+for f in "${INPUTS[@]}"; do
+    if [[ ! -f $f ]]; then
+        echo "error: not a regular file: $f" >&2
+        exit 1
+    fi
+done
 
-INPUT_ABS="$(realpath "$INPUT")"
+FIRST_ABS="$(realpath "${INPUTS[0]}")"
 if [[ -z $OUTPUT_DIR ]]; then
-    OUTPUT_DIR="$(dirname "$INPUT_ABS")"
+    OUTPUT_DIR="$(dirname "$FIRST_ABS")"
 fi
 mkdir -p "$OUTPUT_DIR"
 OUT_ABS="$(realpath "$OUTPUT_DIR")"
@@ -64,9 +67,24 @@ if ! podman image exists "$IMAGE"; then
     exit 1
 fi
 
-echo "input : $INPUT_ABS"
+# Build the mount + path argument lists, one per input.  Each input is mounted
+# read-only at /inputs/input_N.csv inside the container so duplicate basenames
+# on the host don't collide.
+MOUNT_ARGS=()
+PATH_ARGS=()
+for i in "${!INPUTS[@]}"; do
+    ABS="$(realpath "${INPUTS[$i]}")"
+    CN="/inputs/input_$((i + 1)).csv"
+    MOUNT_ARGS+=(-v "$ABS:$CN:ro,Z")
+    PATH_ARGS+=("$CN")
+done
+
+echo "inputs:"
+for f in "${INPUTS[@]}"; do
+    echo "   $(realpath "$f")"
+done
 echo "output: $OUT_ABS"
 exec podman run --rm \
     -v "$OUT_ABS:/data:Z" \
-    -v "$INPUT_ABS:/input.csv:ro,Z" \
-    "$IMAGE" /input.csv "${FORMAT_ARGS[@]}"
+    "${MOUNT_ARGS[@]}" \
+    "$IMAGE" "${PATH_ARGS[@]}" "${FORMAT_ARGS[@]}"

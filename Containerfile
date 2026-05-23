@@ -12,10 +12,12 @@ RUN pip install --no-cache-dir \
         "pandas>=2.2,<4" \
         "numpy>=2,<3" \
         "scipy>=1.13,<2" \
-        "seaborn>=0.13,<0.14"
+        "seaborn>=0.13,<0.14" \
+        "csvkit>=2,<3"
 
-COPY analyze.py _render_pdf.py bp_utils.py make_report.sh entrypoint.sh /app/
-RUN chmod +x /app/make_report.sh /app/entrypoint.sh
+COPY analyze.py _render_pdf.py bp_utils.py make_report.sh entrypoint.sh \
+     omron_merge.sh /app/
+RUN chmod +x /app/make_report.sh /app/entrypoint.sh /app/omron_merge.sh
 
 # /data is the volume mount point: it holds input.csv and receives outputs
 WORKDIR /data
