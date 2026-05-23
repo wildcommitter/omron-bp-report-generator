@@ -355,28 +355,6 @@ with PdfPages(out) as pdf:
         add_image(fig, HERE / "diurnal.png", top=0.86, bottom=0.04)
         pdf.savefig(fig); plt.close(fig); pages += 1
 
-    # Daily statistics — split across two landscape pages:
-    #   Page A: Sys + Dia blocks (Date, n, 14 BP cols)
-    #   Page B: Pulse block      (Date, n, 7 pulse cols)
-    bp_cols = ["Date", "n"] + SYS_COLS + DIA_COLS
-    pls_cols = ["Date", "n"] + PLS_COLS
-
-    fig = new_page(pdf, "Daily statistics — blood pressure")
-    fig.text(0.5, 0.875,
-             "Systolic and diastolic: mean, min, max, 7-day rolling.",
-             ha="center", fontsize=9, color="#555")
-    add_table(fig, daily_stats[bp_cols], top=0.86, bottom=0.04,
-              fontsize=8, col_widths=BP_WIDTHS, row_scale=1.15)
-    pdf.savefig(fig); plt.close(fig); pages += 1
-
-    fig = new_page(pdf, "Daily statistics — pulse")
-    fig.text(0.5, 0.875,
-             "Pulse: mean, min, max, 7-day rolling.",
-             ha="center", fontsize=9, color="#555")
-    add_table(fig, daily_stats[pls_cols], top=0.86, bottom=0.04,
-              fontsize=9, col_widths=PLS_WIDTHS, row_scale=1.15)
-    pdf.savefig(fig); plt.close(fig); pages += 1
-
     # === Per-week mini reports — one page per ISO week ===
     def _stage(s, d):
         if s >= 180 or d >= 120: return "Crisis"
@@ -779,5 +757,26 @@ with PdfPages(out) as pdf:
         else:
             _render_weekly_page_sparse(pdf, df_wk, wk, wc_row, wc_prev)
         pages += 1
+
+    # Daily statistics — raw-numbers appendix, at the end of the report so
+    # the clinical narrative on the earlier pages isn't interrupted.
+    bp_cols = ["Date", "n"] + SYS_COLS + DIA_COLS
+    pls_cols = ["Date", "n"] + PLS_COLS
+
+    fig = new_page(pdf, "Daily statistics — blood pressure")
+    fig.text(0.5, 0.875,
+             "Systolic and diastolic: mean, min, max, 7-day rolling.",
+             ha="center", fontsize=9, color="#555")
+    add_table(fig, daily_stats[bp_cols], top=0.86, bottom=0.04,
+              fontsize=8, col_widths=BP_WIDTHS, row_scale=1.15)
+    pdf.savefig(fig); plt.close(fig); pages += 1
+
+    fig = new_page(pdf, "Daily statistics — pulse")
+    fig.text(0.5, 0.875,
+             "Pulse: mean, min, max, 7-day rolling.",
+             ha="center", fontsize=9, color="#555")
+    add_table(fig, daily_stats[pls_cols], top=0.86, bottom=0.04,
+              fontsize=9, col_widths=PLS_WIDTHS, row_scale=1.15)
+    pdf.savefig(fig); plt.close(fig); pages += 1
 
 print(f"wrote {out.name} ({out.stat().st_size // 1024} KB, {pages} pages)")
