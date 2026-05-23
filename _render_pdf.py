@@ -167,7 +167,7 @@ with PdfPages(out) as pdf:
     esh_pct = float(cs["esh_above_pct"])
 
     fig = new_page(pdf, "Blood pressure & pulse report", size=PORTRAIT)
-    fig.text(0.5, 0.85, "Source: input.csv (OMRON Complete export)",
+    fig.text(0.5, 0.875, "Source: input.csv (OMRON Complete export)",
              ha="center", fontsize=10, style="italic", color="#666")
 
     LMARGIN = 0.08
@@ -178,38 +178,61 @@ with PdfPages(out) as pdf:
         fig.text(LMARGIN + 0.03, y, text, fontsize=9.5, family="monospace",
                  color="#222")
 
-    y = 0.80
+    dense_n = int(cs.get("dense_weeks_n", 0))
+    has_dense = dense_n > 0
+    weeks_total = int(cs.get("weeks_total", 0))
+
+    y = 0.84
     _head(y, "VITALS OVERVIEW")
     _line(y - 0.025, f"Systolic    {df['sys'].mean():>6.1f} mmHg     "
-                    f"range {df['sys'].min()}–{df['sys'].max()}     "
-                    f"SD {df['sys'].std():.1f}")
+                    f"range {df['sys'].min()}–{df['sys'].max()}")
     _line(y - 0.045, f"Diastolic   {df['dia'].mean():>6.1f} mmHg     "
-                    f"range {df['dia'].min()}–{df['dia'].max()}      "
-                    f"SD {df['dia'].std():.1f}")
+                    f"range {df['dia'].min()}–{df['dia'].max()}")
     _line(y - 0.065, f"Pulse       {df['pulse'].mean():>6.1f} bpm      "
-                    f"range {df['pulse'].min()}–{df['pulse'].max()}     "
-                    f"SD {df['pulse'].std():.1f}")
+                    f"range {df['pulse'].min()}–{df['pulse'].max()}")
 
-    y = 0.70
-    _head(y, "DAY VS NIGHT (ESH 07–23h / 23–07h)")
-    _line(y - 0.025,
-          f"Daytime      {cs['day_sys_mean']}/{cs['day_dia_mean']} mmHg   "
-          f"(n={cs['day_n']})")
+    y = 0.745
+    _head(y, f"TRAJECTORY ACROSS {weeks_total} WEEK"
+             f"{'S' if weeks_total != 1 else ''}")
+    _line(y - 0.025, f"Phenotype mix   {cs.get('phenotype_summary', '—')}")
     _line(y - 0.045,
-          f"Nighttime    {cs['night_sys_mean']}/{cs['night_dia_mean']} mmHg   "
-          f"(n={cs['night_n']})")
-    _line(y - 0.065,
-          f"Nocturnal dip   sys {cs['dip_sys_pct']}%   "
-          f"dia {cs['dip_dia_pct']}%   → {cs['dip_pattern']}")
+          f"Longest in-target streak    {cs.get('window_streak_in', '—')} "
+          f"days   (out-of-target {cs.get('window_streak_out', '—')})")
 
-    y = 0.60
-    _head(y, "MORNING SURGE (peak 06–10h − trough 00–06h)")
+    y = 0.675
+    _head(y, "VARIABILITY (ARV on daily means, PP per reading)")
     _line(y - 0.025,
-          f"Sys {_surge('sys')}   Dia {_surge('dia')}   Pulse {_surge('pulse')}")
+          f"ARV    sys {cs.get('window_arv_s','—')}   "
+          f"dia {cs.get('window_arv_d','—')}   "
+          f"pulse {cs.get('window_arv_p','—')}    mmHg / bpm")
     _line(y - 0.045,
-          "Sys surge ≥20 mmHg is flagged as excessive in CV literature.")
+          f"Pulse pressure   mean {cs.get('window_pp_mean','—')}   "
+          f"max {cs.get('window_pp_max','—')}    mmHg")
 
-    y = 0.52
+    if has_dense:
+        y = 0.60
+        _head(y, f"DAY VS NIGHT — ESH 07–23h / 23–07h  ({dense_n}/{weeks_total} weeks dense)")
+        _line(y - 0.025,
+              f"Daytime      {cs['day_sys_mean']}/{cs['day_dia_mean']} mmHg   "
+              f"(n={cs['day_n']})")
+        _line(y - 0.045,
+              f"Nighttime    {cs['night_sys_mean']}/{cs['night_dia_mean']} mmHg   "
+              f"(n={cs['night_n']})")
+        _line(y - 0.065,
+              f"Nocturnal dip   sys {cs['dip_sys_pct']}%   "
+              f"dia {cs['dip_dia_pct']}%   → {cs['dip_pattern']}")
+
+        y = 0.51
+        _head(y, "MORNING SURGE (peak 06–10h − trough 00–06h)")
+        _line(y - 0.025,
+              f"Sys {_surge('sys')}   Dia {_surge('dia')}   Pulse {_surge('pulse')}")
+        _line(y - 0.045,
+              "Sys surge ≥20 mmHg is flagged as excessive in CV literature.")
+        dist_y = 0.44
+    else:
+        dist_y = 0.60
+
+    y = dist_y
     _head(y, "READING DISTRIBUTION (ACC/AHA per individual reading)")
     labels = {"Normal": "<120/80", "Elevated": "120–129",
               "Stage 1": "130–139 or 80–89", "Stage 2": "≥140 or ≥90",
@@ -221,7 +244,7 @@ with PdfPages(out) as pdf:
               f"{s:<10}  {bracket:<22} {int(row['count']):>4}  "
               f"({row['pct']:>5.1f}%)")
 
-    y = 0.39
+    y = dist_y - 0.16
     _head(y, "TIME IN RANGE")
     _line(y - 0.025,
           f"Above ESH home threshold (≥135/85):  {esh_above} readings "
@@ -233,7 +256,7 @@ with PdfPages(out) as pdf:
           f"All-clean days (<135/85 throughout):  {days_clean}/{days_total} "
           f"({days_clean/days_total*100:.0f}%)")
 
-    y = 0.29
+    y = dist_y - 0.27
     _head(y, "HIGHEST SINGLE READING")
     _line(y - 0.025,
           f"{cs['max_sys']}/{cs['max_dia']} mmHg, pulse {cs['max_pulse']} bpm "

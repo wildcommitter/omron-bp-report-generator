@@ -540,9 +540,47 @@ _phen_counts = weekly_clinical["phenotype_primary"].value_counts()
 _phen_summary = " · ".join(
     f"{name}×{int(_phen_counts[name])}"
     for name in PHENOTYPE_PRIMARY if name in _phen_counts.index)
+
+# Window-wide aggregates (computed on daily means across the full window
+# so they behave consistently regardless of sampling density).
+_full_daily = (df.set_index("ts").resample("D")[["sys", "dia", "pulse"]]
+                 .mean().dropna(subset=["sys"]))
+def _window_arv(s):
+    diffs = s.dropna().diff().abs().dropna()
+    return round(float(diffs.mean()), 1) if not diffs.empty else None
+window_arv_s = _window_arv(_full_daily["sys"])
+window_arv_d = _window_arv(_full_daily["dia"])
+window_arv_p = _window_arv(_full_daily["pulse"])
+window_pp_mean = round(float((df["sys"] - df["dia"]).mean()), 1)
+window_pp_max = int((df["sys"] - df["dia"]).max())
+
+_in_target = ((_full_daily["sys"] < 135) & (_full_daily["dia"] < 85)).tolist()
+def _longest(bools):
+    best = run = 0
+    for v in bools:
+        run = run + 1 if v else 0
+        if run > best:
+            best = run
+    return int(best)
+window_streak_in  = _longest(_in_target)
+window_streak_out = _longest([not v for v in _in_target])
+dense_weeks_n = int(weekly_clinical["is_dense"].sum())
+
 clinical = pd.concat([clinical, pd.DataFrame({
-    "key": ["phenotype_summary", "weeks_total"],
-    "value": [_phen_summary, len(weekly_clinical)],
+    "key": [
+        "phenotype_summary", "weeks_total", "dense_weeks_n",
+        "window_arv_s", "window_arv_d", "window_arv_p",
+        "window_pp_mean", "window_pp_max",
+        "window_streak_in", "window_streak_out",
+    ],
+    "value": [
+        _phen_summary, len(weekly_clinical), dense_weeks_n,
+        window_arv_s if window_arv_s is not None else "—",
+        window_arv_d if window_arv_d is not None else "—",
+        window_arv_p if window_arv_p is not None else "—",
+        window_pp_mean, window_pp_max,
+        window_streak_in, window_streak_out,
+    ],
 })], ignore_index=True)
 clinical.to_csv("clinical_summary.csv", index=False)
 
