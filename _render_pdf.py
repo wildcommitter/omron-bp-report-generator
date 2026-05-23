@@ -272,36 +272,64 @@ with PdfPages(out) as pdf:
         def _val(v, fmt="{:.1f}", suffix=""):
             return "—" if pd.isna(v) else fmt.format(v) + suffix
 
+        def _phen_short(row):
+            primary = row.get("phenotype_primary") or ""
+            secondary = row.get("phenotype_secondary") or ""
+            tags = [primary] + (secondary.split(";") if secondary else [])
+            return "+".join(t for t in tags if t)
+
         rows = []
         for _, r in wc.iterrows():
+            is_dense = bool(r.get("is_dense", True))
+            dip_cell = (
+                "—" if not is_dense else
+                _val(r["dip_sys_pct"], suffix="%") +
+                    (f"  (n_n={int(r['night_n'])})"
+                     if not pd.isna(r["night_n"]) and r["night_n"] < 5 else "")
+            )
+            surge_cell = (
+                "—" if not is_dense else
+                (_val(r["surge_sys"], fmt="+{:.1f}")
+                 if not pd.isna(r["surge_sys"]) else "—")
+            )
             rows.append([
                 r["week_start"].strftime("%d %b"),
                 int(r["n"]),
                 _val(r["sys_mean"]),
                 _val(r["dia_mean"]),
+                _val(r["pulse_mean"]),
                 _delta(r["d_sys"]),
                 _delta(r["d_dia"]),
-                _val(r["dip_sys_pct"], suffix="%") +
-                    (f"  (n_n={int(r['night_n'])})" if not pd.isna(r["night_n"]) and r["night_n"] < 5 else ""),
-                _val(r["surge_sys"], fmt="+{:.1f}") if not pd.isna(r["surge_sys"]) else "—",
+                _val(r.get("arv_s")),
+                _val(r.get("pp_mean")),
+                dip_cell,
+                surge_cell,
                 _val(r["esh_above_pct"], suffix="%"),
                 f"{int(r['days_stage2'])}/{int(r['days_in_week'])}",
+                _phen_short(r),
             ])
         wc_table = pd.DataFrame(rows, columns=[
-            "Week of", "n", "Sys", "Dia", "Δ Sys", "Δ Dia",
-            "Dip % sys", "Surge sys", "ESH ≥135/85", "S2 days",
+            "Week of", "n", "Sys", "Dia", "HR",
+            "Δ Sys", "Δ Dia",
+            "ARV(s)", "PP",
+            "Dip % sys", "Surge sys",
+            "ESH ≥135/85", "S2 days", "Phenotype",
         ])
 
         fig = new_page(pdf, "Weekly clinical digest")
         fig.text(0.5, 0.875,
-                 "Cover-page metrics, recomputed per ISO week. Dip and "
-                 "surge show '—' when night coverage is empty; flagged "
-                 "with night-n when it's <5 readings.",
-                 ha="center", fontsize=9, color="#555")
+                 "Cover-page metrics + new tier-1 numbers (ARV, PP, "
+                 "phenotype), per ISO week. Dip/surge are '—' for "
+                 "sparse weeks (≤2 readings/day); dense-week night-n "
+                 "is flagged when <5.",
+                 ha="center", fontsize=8.5, color="#555")
         add_table(fig, wc_table, top=0.85, bottom=0.10,
-                  fontsize=9, row_scale=1.4,
-                  col_widths=[0.09, 0.05, 0.07, 0.07, 0.07, 0.07,
-                              0.12, 0.08, 0.10, 0.08])
+                  fontsize=8, row_scale=1.4,
+                  col_widths=[0.07, 0.035, 0.05, 0.05, 0.05,
+                              0.055, 0.055,
+                              0.05, 0.045,
+                              0.10, 0.07,
+                              0.075, 0.055, 0.16])
         fig.text(0.5, 0.07,
                  "Reference thresholds: ESH home BP ≥135/85 mmHg · "
                  "ACC/AHA Stage 2 ≥140/90 · Normal dipper ≥10% · "
