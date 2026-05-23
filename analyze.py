@@ -467,6 +467,20 @@ def _week_clinical(group):
     _map = group["dia"] + (group["sys"] - group["dia"]) / 3.0
     map_mean = round(float(_map.mean()), 1) if not _map.empty else None
 
+    # Rate-pressure product (sys × HR / 1000): myocardial workload proxy.
+    _rpp = group["sys"] * group["pulse"]
+    rpp_mean = round(float(_rpp.mean() / 1000.0), 2) if not _rpp.empty else None
+
+    # Projected days until daily-mean sys crosses below 135 mmHg, but only
+    # when the within-week slope is significantly negative.
+    sys_m = group["sys"].mean()
+    if (slope_s is not None and slope_s < 0
+            and (slope_s + slope_s_ci) < 0
+            and pd.notna(sys_m) and sys_m > 135):
+        time_to_target_days = int(round((135 - sys_m) / slope_s))
+    else:
+        time_to_target_days = None
+
     return pd.Series({
         "n": n,
         "sys_mean":   round(group["sys"].mean(),   1),
@@ -497,6 +511,8 @@ def _week_clinical(group):
         "slope_p": slope_p, "slope_p_ci": slope_p_ci,
         "coupling_r": coupling_r,
         "map_mean": map_mean,
+        "rpp_mean": rpp_mean,
+        "time_to_target_days": time_to_target_days,
         "crisis_present": crisis_present,
     })
 

@@ -720,13 +720,22 @@ with PdfPages(out) as pdf:
                 _l(y - 0.025 - i * 0.020, res, color="#888")
 
         y = 0.255
-        _h(y, "PERFUSION & COUPLING")
+        _h(y, "PERFUSION & WORKLOAD")
         map_v = wc_row.get("map_mean")
         r_v = wc_row.get("coupling_r")
+        rpp_v = wc_row.get("rpp_mean")
         map_str = f"{map_v:.1f}" if pd.notna(map_v) else "—"
         r_str = (f"{r_v:+.2f}" if pd.notna(r_v) else "—")
+        rpp_str = f"{rpp_v:.1f}" if pd.notna(rpp_v) else "—"
         _l(y - 0.025,
-           f"MAP   {map_str} mmHg     sys–HR r   {r_str}")
+           f"MAP   {map_str} mmHg     RPP   {rpp_str}k")
+        _l(y - 0.045,
+           f"sys–HR r   {r_str}")
+        ttt = wc_row.get("time_to_target_days")
+        if pd.notna(ttt):
+            _l(y - 0.065,
+               f"→ projected to reach 135 in ~{int(ttt)} days at current pace",
+               color="#2e7d32")
 
         # ----- right column (3-panel trend: sys+dia / HR / PP) -----
         daily_w = (df_w.set_index("ts").resample("D")
