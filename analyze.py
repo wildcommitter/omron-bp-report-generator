@@ -458,6 +458,15 @@ def _week_clinical(group):
 
     crisis_present = bool(((group["sys"] >= 180) | (group["dia"] >= 120)).any())
 
+    # Daily-mean sys-vs-HR Pearson r; >0 means BP and HR rise/fall together.
+    aligned = daily.dropna(subset=["sys", "pulse"])
+    coupling_r = (round(float(aligned["sys"].corr(aligned["pulse"])), 2)
+                  if len(aligned) >= 3 else None)
+
+    # Mean arterial pressure: dia + 1/3 (sys − dia).  Perfusion pressure.
+    _map = group["dia"] + (group["sys"] - group["dia"]) / 3.0
+    map_mean = round(float(_map.mean()), 1) if not _map.empty else None
+
     return pd.Series({
         "n": n,
         "sys_mean":   round(group["sys"].mean(),   1),
@@ -486,6 +495,8 @@ def _week_clinical(group):
         "slope_s": slope_s, "slope_s_ci": slope_s_ci,
         "slope_d": slope_d, "slope_d_ci": slope_d_ci,
         "slope_p": slope_p, "slope_p_ci": slope_p_ci,
+        "coupling_r": coupling_r,
+        "map_mean": map_mean,
         "crisis_present": crisis_present,
     })
 

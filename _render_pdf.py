@@ -719,6 +719,15 @@ with PdfPages(out) as pdf:
             else:
                 _l(y - 0.025 - i * 0.020, res, color="#888")
 
+        y = 0.255
+        _h(y, "PERFUSION & COUPLING")
+        map_v = wc_row.get("map_mean")
+        r_v = wc_row.get("coupling_r")
+        map_str = f"{map_v:.1f}" if pd.notna(map_v) else "—"
+        r_str = (f"{r_v:+.2f}" if pd.notna(r_v) else "—")
+        _l(y - 0.025,
+           f"MAP   {map_str} mmHg     sys–HR r   {r_str}")
+
         # ----- right column (3-panel trend: sys+dia / HR / PP) -----
         daily_w = (df_w.set_index("ts").resample("D")
                     .mean(numeric_only=True).dropna(subset=["sys"]))
