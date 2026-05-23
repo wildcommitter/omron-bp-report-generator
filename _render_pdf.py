@@ -80,11 +80,11 @@ weekly_period_table = pd.DataFrame(_wp_rows, columns=[
     "Sys", "Δ Sys", "Dia", "Δ Dia", "Pulse", "Δ Pulse",
 ])
 WEEKLY_PERIOD_WIDTHS = [0.10, 0.09, 0.05, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08]
-SYS_COLS = ["Sys", "S−", "S+", "S AM", "S PM", "S Nt", "S 7d"]
-DIA_COLS = ["Dia", "D−", "D+", "D AM", "D PM", "D Nt", "D 7d"]
-PLS_COLS = ["Pls", "P−", "P+", "P AM", "P PM", "P Nt", "P 7d"]
-BP_WIDTHS = [0.07, 0.03] + [0.055] * 14    # Date, n, 14 sys/dia cols
-PLS_WIDTHS = [0.10, 0.05] + [0.11] * 7     # Date, n, 7 pulse cols
+SYS_COLS = ["Sys", "S−", "S+", "S 7d"]
+DIA_COLS = ["Dia", "D−", "D+", "D 7d"]
+PLS_COLS = ["Pls", "P−", "P+", "P 7d"]
+BP_WIDTHS = [0.08, 0.04] + [0.11] * 8      # Date, n, 8 sys/dia cols
+PLS_WIDTHS = [0.12, 0.06] + [0.205] * 4    # Date, n, 4 pulse cols
 
 LANDSCAPE = (11, 8.5)
 PORTRAIT = (8.5, 11)
@@ -425,7 +425,7 @@ with PdfPages(out) as pdf:
 
     fig = new_page(pdf, "Daily statistics — blood pressure")
     fig.text(0.5, 0.875,
-             "Systolic and diastolic: mean, min, max, AM/PM/Nt, 7-day rolling.",
+             "Systolic and diastolic: mean, min, max, 7-day rolling.",
              ha="center", fontsize=9, color="#555")
     add_table(fig, daily_stats[bp_cols], top=0.86, bottom=0.04,
               fontsize=8, col_widths=BP_WIDTHS, row_scale=1.15)
@@ -433,7 +433,7 @@ with PdfPages(out) as pdf:
 
     fig = new_page(pdf, "Daily statistics — pulse")
     fig.text(0.5, 0.875,
-             "Pulse: mean, min, max, AM/PM/Nt, 7-day rolling.",
+             "Pulse: mean, min, max, 7-day rolling.",
              ha="center", fontsize=9, color="#555")
     add_table(fig, daily_stats[pls_cols], top=0.86, bottom=0.04,
               fontsize=9, col_widths=PLS_WIDTHS, row_scale=1.15)
