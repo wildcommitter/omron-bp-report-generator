@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 bluer = { version = "0.17", features = ["bluetoothd"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
 futures = "0.3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "signal"] }
