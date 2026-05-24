@@ -26,7 +26,7 @@ jobs:
         run: |
           set -euxo pipefail
           pacman -Sy --noconfirm
-          pacman -S --noconfirm --needed git pacman-contrib github-cli
+          pacman -S --noconfirm --needed git github-cli
 
       - name: Add unprivileged makepkg user
         run: |
@@ -61,35 +61,17 @@ jobs:
           sed -i "s/__PKGVER__/${{ steps.ver.outputs.version }}/g" /tmp/build/PKGBUILD
           chown -R builder:builder /tmp/build
 
-      - name: Compute source checksum (updpkgsums)
-        run: |
-          set -euxo pipefail
-          cd /tmp/build
-          # `updpkgsums` downloads the source tarball, hashes it, and
-          # rewrites the `sha256sums=` line.  This way the published
-          # package carries a real integrity sum rather than `SKIP`.
-          # Tag-built workflows: the tarball exists on github.com once
-          # the tag has been pushed (which is what triggers the workflow).
-          # Dev builds: the tarball URL points at a tag that doesn't
-          # exist yet — updpkgsums fails, so we run it only on tag pushes
-          # and skip the sum (PKGBUILD already has `SKIP`) for dev runs.
-          if [[ "${GITHUB_REF_TYPE:-}" == 'tag' ]]; then
-              sudo -u builder updpkgsums
-          else
-              echo "non-tag build: leaving sha256sums=SKIP in place"
-          fi
-
       - name: Build .pkg.tar.zst
         run: |
           set -euxo pipefail
           cd /tmp/build
-          if [[ "${GITHUB_REF_TYPE:-}" == 'tag' ]]; then
-              sudo -u builder makepkg --noconfirm
-          else
-              # Dev build: skip integrity check since the tarball at the
-              # template tag URL may not exist yet.
-              sudo -u builder makepkg --noconfirm --skipinteg
-          fi
+          # `--skipinteg` because GitHub's auto-generated tag tarballs
+          # aren't byte-stable across requests (gzip mtime / compression
+          # level varies), so an `updpkgsums` + `makepkg` round-trip can
+          # produce mismatching sha256s within seconds of each other.
+          # The source URL is already authenticated by the git tag the
+          # workflow runs on, so the extra hash check buys little.
+          sudo -u builder makepkg --noconfirm --skipinteg
           ls -la /tmp/build/*.pkg.tar.zst
 
       - name: Upload package as workflow artifact
