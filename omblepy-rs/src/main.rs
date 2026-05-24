@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand};
 
 mod ble;
 mod devices;
+mod protocol;
 
 #[derive(Parser, Debug)]
 #[command(
