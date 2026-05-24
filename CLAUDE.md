@@ -73,6 +73,12 @@ Cardiology-oriented additions on the PDF:
   a hand-exported one.
 - `.github/workflows/build-image.yml` — buildah/podman GitHub Action
   that publishes to `ghcr.io/wildcommitter/omron-bp-report-generator`.
+- `.github/workflows/release-arch.yml` — fires on `v*` tag push.
+  Builds an Arch `.pkg.tar.zst` containing the launcher (pointed at the
+  matching GHCR tag) and attaches it to the GitHub Release.
+- `packaging/arch/PKGBUILD` — recipe consumed by the release workflow.
+  `pkgver` is the literal token `__PKGVER__`; the workflow substitutes
+  the git tag before calling `makepkg`.
 
 ## Running things
 
@@ -122,6 +128,30 @@ podman build -t bp-report .        # rebuild container image
   `deadbeaf12341234deadbeaf12341234`. Meters paired with the Python
   tool keep working with no re-pair. Override with `--pair-key HEX`
   on the launcher, or `BP_PAIR_KEY` in the env.
+
+## Cutting a release
+
+```
+git tag -a v0.3.0 -m 'release notes here'
+git push origin v0.3.0
+```
+
+That fires two workflows in parallel:
+
+- `build-image.yml` — pushes
+  `ghcr.io/wildcommitter/omron-bp-report-generator:v0.3.0` (plus the
+  rolling `latest` tag).
+- `release-arch.yml` — creates the matching GitHub Release with
+  auto-generated notes, builds `bp-report-0.3.0-1-any.pkg.tar.zst`,
+  and uploads it as a release asset.
+
+The PKGBUILD points the installed launcher at the GHCR image of the
+same tag, so a user `pacman -U`-ing the asset is automatically wired
+up to the matching container build.
+
+`workflow_dispatch` on `release-arch.yml` is available for testing the
+package build without cutting a tag — it produces a date-stamped
+dev `.pkg.tar.zst` as a workflow artifact only (no release upload).
 
 ## Git workflow
 

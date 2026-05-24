@@ -93,6 +93,20 @@ them into `input.csv`, and rebuilds the report. Ctrl-C to stop.
 Both BLE modes need access to the host's BlueZ daemon; the launcher
 adds `--net=host` and bind-mounts `/run/dbus` automatically.
 
+### Install on Arch Linux
+
+Each `v*` tag publishes a `bp-report-X.Y.Z-1-any.pkg.tar.zst` to the
+[Releases page](https://github.com/wildcommitter/omron-bp-report-generator/releases).
+Install with `pacman`:
+
+```
+sudo pacman -U https://github.com/wildcommitter/omron-bp-report-generator/releases/download/v0.3.0/bp-report-0.3.0-1-any.pkg.tar.zst
+```
+
+That puts `bp-report` on `$PATH` and points its `BP_REPORT_IMAGE`
+default at the GHCR image for the same tag — `bp-report data.csv`
+works without a local build.
+
 ### Pulling the prebuilt image
 
 Each push to `main` and every `v*` tag triggers
