@@ -122,17 +122,36 @@ impl Ble {
         Ok(dev)
     }
 
-    /// Wait until the device exposes `service_uuid` via GATT, polling every
-    /// 250ms.  Mirrors the 20-iteration / 0.25s wait in omblepy.py's `main()`,
-    /// but checks the discovered GATT service list (active) rather than the
-    /// advertised UUID list (passive) — some Omron firmwares don't include
-    /// the legacy parent service in their advertisement.
+    /// Wait until the device exposes `service_uuid` via GATT.  Two stages:
+    ///
+    /// 1. Wait for BlueZ's `ServicesResolved` property to flip true — that
+    ///    happens once the post-connect GATT discovery finishes.  Calling
+    ///    `services()` before this point returns an empty list even though
+    ///    the peripheral does expose the services.
+    /// 2. Walk the resolved primary services and look for `service_uuid`.
+    ///
+    /// Polls at 250 ms; `attempts` is the upper bound for both stages
+    /// combined.
     pub async fn wait_for_service(
         &self,
         dev: &Device,
         service_uuid: bluer::Uuid,
         attempts: usize,
     ) -> Result<()> {
+        let mut resolved = false;
+        for _ in 0..attempts {
+            if dev.is_services_resolved().await.unwrap_or(false) {
+                resolved = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        if !resolved {
+            tracing::warn!(
+                "{}: ServicesResolved never became true — checking services anyway",
+                dev.address()
+            );
+        }
         let mut last_seen: Vec<bluer::Uuid> = Vec::new();
         for _ in 0..attempts {
             if let Ok(services) = dev.services().await {

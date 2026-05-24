@@ -154,7 +154,10 @@ async fn main() -> Result<()> {
                 return Ok(());
             }
 
-            ble.wait_for_service(&dev, cfg.parent_service, 20).await?;
+            // 80 iterations × 250 ms = 20 s.  A freshly-bonded meter can take
+            // ten-plus seconds to publish its GATT services through BlueZ; the
+            // original 5 s budget was sometimes too tight.
+            ble.wait_for_service(&dev, cfg.parent_service, 80).await?;
             let mut proto = protocol::Protocol::new(&dev, cfg).await?;
             proto.write_pairing_key(&key).await?;
             proto.start_transmission().await?;
