@@ -71,7 +71,15 @@ jobs:
           # produce mismatching sha256s within seconds of each other.
           # The source URL is already authenticated by the git tag the
           # workflow runs on, so the extra hash check buys little.
-          sudo -u builder makepkg --noconfirm --skipinteg
+          #
+          # `--nodeps` because makepkg checks that the *runtime* deps
+          # (`bash`, `podman`) are installable in the build environment
+          # even though it never invokes them.  Podman isn't in
+          # base-devel, so without --nodeps makepkg aborts at the
+          # dependency-resolution step.  The runtime deps still get
+          # recorded in the resulting .PKGINFO; we just skip the build-
+          # time check.
+          sudo -u builder makepkg --noconfirm --skipinteg --nodeps
           ls -la /tmp/build/*.pkg.tar.zst
 
       - name: Upload package as workflow artifact
