@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 
 mod ble;
@@ -27,6 +27,22 @@ enum Cmd {
         /// Seconds to keep the radio in discovery mode.
         #[arg(long, default_value_t = 6)]
         seconds: u64,
+    },
+    /// Program the pairing key into a device that's currently in pairing
+    /// mode. Run this once per meter; subsequent reads use plain `unlock`
+    /// behind the scenes.
+    Pair {
+        /// Device model (e.g. hem-7361t). Determines BLE channel layout.
+        #[arg(long, short = 'd')]
+        device: String,
+        /// Bluetooth MAC address of the meter (XX:XX:XX:XX:XX:XX).
+        #[arg(long, short = 'm')]
+        mac: String,
+        /// Override the 32-char-hex pairing key. Defaults to upstream
+        /// omblepy's `deadbeaf…` so devices paired with the Python tool
+        /// keep working.
+        #[arg(long, short = 'k')]
+        key: Option<String>,
     },
 }
 
@@ -58,6 +74,27 @@ async fn main() -> Result<()> {
                 let name = d.name.clone().unwrap_or_else(|| "<unknown>".to_string());
                 println!("{:<3}  {}  {:<5}  {}", i, d.address, rssi, name);
             }
+        }
+        Cmd::Pair { device, mac, key } => {
+            if !devices::is_supported(&device) {
+                bail!("unsupported device '{}', run `list-devices` to see options", device);
+            }
+            let key = match key {
+                Some(s) => protocol::parse_pairing_key(&s)?,
+                None => protocol::DEFAULT_PAIRING_KEY,
+            };
+            let cfg = devices::channel_config_for(&device);
+            let ble = ble::Ble::new().await?;
+            let addr = ble::parse_mac(&mac)?;
+            let dev = ble.connect(addr).await.context("connect to meter")?;
+            ble.wait_for_service(&dev, cfg.parent_service, 20).await?;
+            let mut proto = protocol::Protocol::new(&dev, cfg).await?;
+            proto.write_pairing_key(&key).await?;
+            // Upstream omblepy does a start+end transmission after a fresh
+            // pair to settle the device; mirror that.
+            proto.start_transmission().await?;
+            proto.end_transmission().await?;
+            println!("Paired {mac} as {device}. You can now drop the --pair flag.");
         }
     }
     Ok(())

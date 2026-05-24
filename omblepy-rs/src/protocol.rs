@@ -23,7 +23,28 @@ use bluer::Uuid;
 use bluer::gatt::remote::Characteristic;
 use futures::stream::{BoxStream, SelectAll, StreamExt, select_all};
 use tokio::time::timeout;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
+
+/// Default 16-byte pairing key. Arbitrary but stable across the upstream
+/// Python tool, so a device paired with omblepy keeps working under
+/// omblepy-rs.
+pub const DEFAULT_PAIRING_KEY: [u8; 16] = [
+    0xde, 0xad, 0xbe, 0xaf, 0x12, 0x34, 0x12, 0x34,
+    0xde, 0xad, 0xbe, 0xaf, 0x12, 0x34, 0x12, 0x34,
+];
+
+/// Parse a 32-character hex string into a 16-byte pairing key.
+pub fn parse_pairing_key(hex_str: &str) -> Result<[u8; 16]> {
+    if hex_str.len() != 32 {
+        bail!("pairing key must be 32 hex characters, got {}", hex_str.len());
+    }
+    let mut out = [0u8; 16];
+    for i in 0..16 {
+        out[i] = u8::from_str_radix(&hex_str[2 * i..2 * i + 2], 16)
+            .with_context(|| format!("invalid hex at position {}", 2 * i))?;
+    }
+    Ok(out)
+}
 
 pub const LEGACY_PARENT_SERVICE_UUID: Uuid =
     Uuid::from_u128(0xecbe3980_c9a2_11e1_b1bd_0002a5d5c51b);
@@ -398,6 +419,120 @@ impl Protocol {
             self.write_eeprom_block(start, &remaining[..take]).await?;
             start = start.wrapping_add(take as u16);
             remaining = &remaining[take..];
+        }
+        Ok(())
+    }
+
+    /// Program a fresh 16-byte pairing key into the device's unlock
+    /// characteristic. The device must already be in pairing mode (long-press
+    /// the BT button until it advertises). Mirrors omblepy.py's
+    /// `writeNewUnlockKey`.
+    pub async fn write_pairing_key(&mut self, key: &[u8; 16]) -> Result<()> {
+        if !self.cfg.supports_pairing {
+            bail!("device does not support omblepy-style pairing");
+        }
+        let unlock = self
+            .unlock_char
+            .as_ref()
+            .ok_or_else(|| anyhow!("unlock characteristic not present"))?;
+
+        // Subscribing to RX channel 0 first wakes the BLE pairing flow on the
+        // device (it sends an SMP Security Request in response). We hold the
+        // resulting stream for the rest of the function so the bond completes
+        // in the background while we hammer the unlock channel.
+        let _rx0_hold = self.rx_chars[0]
+            .notify()
+            .await
+            .context("subscribe rx ch0 to kick off bond")?;
+
+        let unlock_stream = unlock
+            .notify()
+            .await
+            .context("subscribe unlock channel")?;
+        let mut unlock_stream = Box::pin(unlock_stream);
+
+        // Enter key-programming mode: write {0x02, 16 zero bytes}, expect 0x82 0x00
+        // back. Retry up to 10 times to give the OS-level bond time to finish.
+        let mut entered = false;
+        let mut last_response: Vec<u8> = Vec::new();
+        for attempt in 0..10u32 {
+            let mut cmd = [0u8; 17];
+            cmd[0] = 0x02;
+            unlock
+                .write(&cmd)
+                .await
+                .with_context(|| format!("write key-programming request attempt {}", attempt + 1))?;
+            match timeout(Duration::from_secs(2), unlock_stream.next()).await {
+                Ok(Some(resp)) => {
+                    last_response = resp;
+                    if last_response.len() >= 2
+                        && last_response[0] == 0x82
+                        && last_response[1] == 0x00
+                    {
+                        debug!("entered key-programming mode after {} attempt(s)", attempt + 1);
+                        entered = true;
+                        break;
+                    }
+                    debug!(
+                        "attempt {}/10 got response {:02x?}, retrying...",
+                        attempt + 1,
+                        &last_response[..last_response.len().min(2)]
+                    );
+                }
+                Ok(None) => bail!("unlock notify stream closed"),
+                Err(_) => debug!("attempt {}/10 timed out, retrying...", attempt + 1),
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+        if !entered {
+            bail!(
+                "could not enter key-programming mode after 10 attempts (last response: {:02x?}). \
+                 Did you put the meter into pairing mode?",
+                last_response
+            );
+        }
+
+        // Program the new key: write {0x00, key[16]}, expect 0x80 0x00.
+        let mut prog = [0u8; 17];
+        prog[0] = 0x00;
+        prog[1..].copy_from_slice(key);
+        unlock.write(&prog).await.context("write new pairing key")?;
+        let resp = timeout(Duration::from_secs(3), unlock_stream.next())
+            .await
+            .map_err(|_| anyhow!("timed out waiting for key-programming ack"))?
+            .ok_or_else(|| anyhow!("unlock notify stream closed during key write"))?;
+        if resp.len() < 2 || resp[0] != 0x80 || resp[1] != 0x00 {
+            bail!("failure programming new key, response: {:02x?}", resp);
+        }
+        info!("paired device successfully with new key");
+        Ok(())
+    }
+
+    /// Authenticate with the device using a previously-programmed pairing key.
+    /// No-op when the device's `requires_unlock` is false.
+    pub async fn unlock(&mut self, key: &[u8; 16]) -> Result<()> {
+        if !self.cfg.requires_unlock {
+            return Ok(());
+        }
+        let unlock = self
+            .unlock_char
+            .as_ref()
+            .ok_or_else(|| anyhow!("unlock characteristic not present"))?;
+        let stream = unlock.notify().await.context("subscribe unlock channel")?;
+        let mut stream = Box::pin(stream);
+        let mut payload = [0u8; 17];
+        payload[0] = 0x01;
+        payload[1..].copy_from_slice(key);
+        unlock
+            .write(&payload)
+            .await
+            .context("write unlock-with-key request")?;
+        let resp = timeout(Duration::from_secs(3), stream.next())
+            .await
+            .map_err(|_| anyhow!("timed out waiting for unlock ack"))?
+            .ok_or_else(|| anyhow!("unlock notify stream closed"))?;
+        if resp.len() < 2 || resp[0] != 0x81 || resp[1] != 0x00 {
+            bail!("entered pairing key does not match stored one (resp {:02x?})", resp);
         }
         Ok(())
     }
