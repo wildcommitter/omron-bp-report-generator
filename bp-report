@@ -31,9 +31,12 @@ Daemon / pair modes:
   --pair-key HEX         override the 32-char-hex pairing key
   --time-sync            sync the meter's clock each session (daemon only)
 
-In daemon mode the launcher mounts /run/dbus into the container and
-runs --net=host so the binary inside can reach the host's BlueZ.
-The container stays running until Ctrl-C / SIGTERM.
+In daemon / pair mode the launcher mounts /run/dbus, runs --net=host,
+and (for rootless podman) passes --userns=keep-id so the in-container
+caller's UID matches the host user's — without that BlueZ's polkit
+policy refuses org.bluez access.  /var/lib/bluetooth is also bind-
+mounted when readable, so HEM-7380T1's OS-bonding survives container
+restarts.  Daemon mode stays running until Ctrl-C / SIGTERM.
 
 Build the image first with:
   podman build -t bp-report .
@@ -105,6 +108,30 @@ if [[ $MODE != csv ]]; then
         echo "         the container won't be able to reach BlueZ." >&2
     fi
 
+    # Rootless podman maps the in-container root to a high host UID via
+    # subuid, which makes DBus see the caller as someone other than the
+    # logged-in user — and BlueZ's polkit policy then refuses access.
+    # `--userns=keep-id` keeps the host user UID inside the container,
+    # so org.bluez authentication matches what `bluetoothctl` on the host
+    # would see.  Rootful podman doesn't accept this flag, so apply it
+    # only when running rootless.
+    USERNS_ARGS=()
+    if podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null | grep -qi '^true$'; then
+        USERNS_ARGS=(--userns=keep-id)
+    fi
+
+    # `/var/lib/bluetooth` holds BlueZ's OS-level bonding state.  Required
+    # by the HEM-7380T1 driver (which delegates pairing to `Device::pair()`
+    # rather than writing a key in-band), so bonds persist past
+    # `podman run --rm`.  Most distros lock this dir to mode 700 owned by
+    # root, so only mount it when readable — running rootless without
+    # sudo simply won't have access, and the legacy 8-device path doesn't
+    # need it.
+    BLUETOOTH_STATE_MOUNT=()
+    if [[ -r /var/lib/bluetooth ]]; then
+        BLUETOOTH_STATE_MOUNT=(-v /var/lib/bluetooth:/var/lib/bluetooth)
+    fi
+
     ENV_ARGS=(-e "BP_DEVICE=$DEVICE" -e "BP_MAC=$MAC")
     if [[ -n $PAIR_KEY ]]; then ENV_ARGS+=(-e "BP_PAIR_KEY=$PAIR_KEY"); fi
     if [[ $MODE == daemon && $TIME_SYNC == 1 ]]; then
@@ -115,7 +142,9 @@ if [[ $MODE != csv ]]; then
         echo "Pairing mode — make sure the meter is in pairing mode now."
         exec podman run --rm \
             --net=host \
+            "${USERNS_ARGS[@]}" \
             "${DBUS_MOUNTS[@]}" \
+            "${BLUETOOTH_STATE_MOUNT[@]}" \
             "${ENV_ARGS[@]}" \
             -v "$OUT_ABS:/data:Z" \
             "$IMAGE" --pair
@@ -126,7 +155,9 @@ if [[ $MODE != csv ]]; then
     echo "        Ctrl-C to stop."
     exec podman run --rm \
         --net=host \
+        "${USERNS_ARGS[@]}" \
         "${DBUS_MOUNTS[@]}" \
+        "${BLUETOOTH_STATE_MOUNT[@]}" \
         "${ENV_ARGS[@]}" \
         -v "$OUT_ABS:/data:Z" \
         "$IMAGE" --daemon "${FORMAT_ARGS[@]}"
