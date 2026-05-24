@@ -1,9 +1,14 @@
-// Registry of supported Omron device-driver names. Each name resolves to a
-// `DeviceDriver` impl in a later commit; for now it's a static list so the
-// `list-devices` CLI works and a `channel_config_for` shim so pair/scan know
-// the BLE layout to expect.
+// Registry of supported Omron device-driver instances. Each name resolves
+// to a boxed `DeviceDriver` impl from a sibling module.
 
 use crate::protocol::ChannelConfig;
+use crate::shared::DeviceDriver;
+
+pub mod common;
+mod hem_7150t;
+mod hem_7155t;
+mod hem_7342t;
+mod hem_7361t;
 
 pub const SUPPORTED: &[&str] = &[
     "hem-6232t",
@@ -25,9 +30,23 @@ pub fn is_supported(name: &str) -> bool {
     SUPPORTED.iter().any(|n| n.eq_ignore_ascii_case(name))
 }
 
-/// Return the BLE channel layout for a device. Every supported model except
-/// HEM-7380T1 uses the legacy 4-channel protocol with the default service
-/// UUIDs; the 7380T1 override lands in commit 8.
-pub fn channel_config_for(_name: &str) -> ChannelConfig {
-    ChannelConfig::default()
+/// Look up a device by name and return its driver as a trait object.
+/// Returns None for names that are listed as supported but not yet
+/// implemented (they will be added in later commits).
+pub fn driver_for(name: &str) -> Option<Box<dyn DeviceDriver>> {
+    match name.to_ascii_lowercase().as_str() {
+        "hem-7150t" => Some(Box::new(hem_7150t::Hem7150t)),
+        "hem-7155t" => Some(Box::new(hem_7155t::Hem7155t)),
+        "hem-7342t" => Some(Box::new(hem_7342t::Hem7342t)),
+        "hem-7361t" => Some(Box::new(hem_7361t::Hem7361t)),
+        _ => None,
+    }
+}
+
+/// Return the BLE channel layout for a device. Falls back to the legacy
+/// 4-channel layout when the device hasn't overridden it.
+pub fn channel_config_for(name: &str) -> ChannelConfig {
+    driver_for(name)
+        .map(|d| d.channel_config())
+        .unwrap_or_default()
 }
