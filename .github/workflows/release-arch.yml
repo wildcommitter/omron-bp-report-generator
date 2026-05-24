@@ -26,7 +26,7 @@ jobs:
         run: |
           set -euxo pipefail
           pacman -Sy --noconfirm
-          pacman -S --noconfirm --needed git github-cli
+          pacman -S --noconfirm --needed git
 
       - name: Add unprivileged makepkg user
         run: |
@@ -91,13 +91,8 @@ jobs:
 
       - name: Attach to GitHub Release
         if: github.ref_type == 'tag'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euxo pipefail
-          cd /tmp/build
-          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-              gh release create "$GITHUB_REF_NAME" --generate-notes \
-                  --title "$GITHUB_REF_NAME"
-          fi
-          gh release upload "$GITHUB_REF_NAME" *.pkg.tar.zst --clobber
+        uses: softprops/action-gh-release@v2
+        with:
+          files: /tmp/build/*.pkg.tar.zst
+          generate_release_notes: true
+          fail_on_unmatched_files: true
