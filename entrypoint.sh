@@ -27,6 +27,7 @@ for arg in "$@"; do
     case $arg in
         --daemon) MODE=daemon ;;
         --pair)   MODE=pair ;;
+        --list-devices) MODE=list-devices ;;
         --pdf|--md|--markdown) PASSTHRU+=("$arg") ;;
         -h|--help)
             cat <<EOF
@@ -34,6 +35,7 @@ Usage:
   <image> [CSV_PATH ...] [--pdf | --md]      # build a report from CSV(s)
   <image> --daemon [--pdf | --md]            # listen for the BLE meter
   <image> --pair                             # write the pairing key
+  <image> --list-devices                     # list known meter models
 
 CSV mode (default): reads input.csv (or any positional CSVs) from /data
 and writes report.pdf / report.md next to them.  Multiple paths are
@@ -79,6 +81,9 @@ bp_required_env() {
 }
 
 case $MODE in
+    list-devices)
+        exec /app/omblepy-rs list-devices
+        ;;
     pair)
         bp_required_env BP_DEVICE
         bp_required_env BP_MAC

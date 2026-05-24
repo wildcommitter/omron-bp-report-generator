@@ -16,6 +16,7 @@ Usage:
   $(basename "$0") INPUT.csv [MORE.csv ...] [-o OUTPUT_DIR] [--pdf | --md]
   $(basename "$0") --daemon --device MODEL --mac MAC [-o OUTPUT_DIR] [--pdf | --md] [--time-sync] [--pair-key HEX]
   $(basename "$0") --pair   --device MODEL --mac MAC [--pair-key HEX]
+  $(basename "$0") --list-devices
 
 CSV mode (default):
   INPUT.csv              path to an OMRON CSV export (required, ≥1)
@@ -26,10 +27,11 @@ CSV mode (default):
   -h, --help             show this help
 
 Daemon / pair modes:
-  --device, -d MODEL     hem-7361t, hem-7322t, … (run \`omblepy-rs list-devices\`)
+  --device, -d MODEL     hem-7361t, hem-7322t, … (run \`$(basename "$0") --list-devices\`)
   --mac,    -m MAC       Bluetooth MAC of the meter (XX:XX:XX:XX:XX:XX)
   --pair-key HEX         override the 32-char-hex pairing key
   --time-sync            sync the meter's clock each session (daemon only)
+  --list-devices         print the device-name strings the --device flag accepts
 
 In daemon / pair mode the launcher mounts /run/dbus, runs --net=host,
 and (for rootless podman) passes --userns=keep-id so the in-container
@@ -59,6 +61,7 @@ while [[ $# -gt 0 ]]; do
         --md|--markdown|--pdf) FORMAT_ARGS+=("$1"); shift ;;
         --daemon) MODE=daemon; shift ;;
         --pair)   MODE=pair; shift ;;
+        --list-devices) MODE=list-devices; shift ;;
         -d|--device) DEVICE="$2"; shift 2 ;;
         -m|--mac) MAC="$2"; shift 2 ;;
         --pair-key) PAIR_KEY="$2"; shift 2 ;;
@@ -80,8 +83,17 @@ if ! podman image exists "$IMAGE"; then
     fi
 fi
 
+# --- list-devices: just shell into the container and print the names ---
+if [[ $MODE == list-devices ]]; then
+    if [[ ${#INPUTS[@]} -gt 0 ]]; then
+        echo "error: --list-devices takes no positional arguments" >&2
+        exit 2
+    fi
+    exec podman run --rm "$IMAGE" --list-devices
+fi
+
 # --- Daemon / pair modes ---
-if [[ $MODE != csv ]]; then
+if [[ $MODE == daemon || $MODE == pair ]]; then
     if [[ ${#INPUTS[@]} -gt 0 ]]; then
         echo "error: CSV inputs are not allowed with --$MODE" >&2
         exit 2
