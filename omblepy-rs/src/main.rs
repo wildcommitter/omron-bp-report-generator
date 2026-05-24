@@ -57,6 +57,14 @@ enum Cmd {
         /// Output CSV path. Defaults to ./omblepy.csv next to cwd.
         #[arg(long, short = 'o', default_value = "omblepy.csv")]
         output: PathBuf,
+        /// Merge the freshly-pulled session into this existing CSV via
+        /// omron_merge.sh, deduplicating on (Fecha,Hora). Typical use:
+        /// `--merge-into /data/input.csv`.
+        #[arg(long)]
+        merge_into: Option<PathBuf>,
+        /// Path to omron_merge.sh. Defaults to the container layout.
+        #[arg(long, default_value = "/app/omron_merge.sh")]
+        merge_script: PathBuf,
         /// Only fetch records flagged as unread (and clear the counter
         /// on the device). Otherwise read all 100 slots per user.
         #[arg(long, short = 'n')]
@@ -129,6 +137,8 @@ async fn main() -> Result<()> {
             device,
             mac,
             output,
+            merge_into,
+            merge_script,
             new_rec_only,
             time_sync,
             key,
@@ -158,6 +168,12 @@ async fn main() -> Result<()> {
                 flat.len(),
                 output.display()
             );
+            if let Some(target) = merge_into {
+                csv_out::merge_into(&target, &output, &merge_script).with_context(|| {
+                    format!("merge into {}", target.display())
+                })?;
+                println!("Merged into {}", target.display());
+            }
         }
     }
     Ok(())
