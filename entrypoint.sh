@@ -28,6 +28,7 @@ for arg in "$@"; do
         --daemon) MODE=daemon ;;
         --pair)   MODE=pair ;;
         --list-devices) MODE=list-devices ;;
+        --scan) MODE=scan ;;
         --pdf|--md|--markdown) PASSTHRU+=("$arg") ;;
         -h|--help)
             cat <<EOF
@@ -83,6 +84,9 @@ bp_required_env() {
 case $MODE in
     list-devices)
         exec /app/omblepy-rs list-devices
+        ;;
+    scan)
+        exec /app/omblepy-rs scan
         ;;
     pair)
         bp_required_env BP_DEVICE

@@ -17,6 +17,7 @@ Usage:
   $(basename "$0") --daemon --device MODEL --mac MAC [-o OUTPUT_DIR] [--pdf | --md] [--time-sync] [--pair-key HEX]
   $(basename "$0") --pair   --device MODEL --mac MAC [--pair-key HEX]
   $(basename "$0") --list-devices
+  $(basename "$0") --scan
 
 CSV mode (default):
   INPUT.csv              path to an OMRON CSV export (required, ≥1)
@@ -62,6 +63,7 @@ while [[ $# -gt 0 ]]; do
         --daemon) MODE=daemon; shift ;;
         --pair)   MODE=pair; shift ;;
         --list-devices) MODE=list-devices; shift ;;
+        --scan) MODE=scan; shift ;;
         -d|--device) DEVICE="$2"; shift 2 ;;
         -m|--mac) MAC="$2"; shift 2 ;;
         --pair-key) PAIR_KEY="$2"; shift 2 ;;
@@ -90,6 +92,29 @@ if [[ $MODE == list-devices ]]; then
         exit 2
     fi
     exec podman run --rm "$IMAGE" --list-devices
+fi
+
+# --- scan: a BLE-discovery diagnostic.  Same DBus pass-through as
+# daemon/pair, but no MAC filter — useful for sanity-checking that the
+# container can reach BlueZ and that the meter is actually advertising.
+if [[ $MODE == scan ]]; then
+    if [[ ${#INPUTS[@]} -gt 0 ]]; then
+        echo "error: --scan takes no positional arguments" >&2
+        exit 2
+    fi
+    DBUS_MOUNTS=()
+    if   [[ -e /run/dbus ]];     then DBUS_MOUNTS+=(-v /run/dbus:/run/dbus)
+    elif [[ -e /var/run/dbus ]]; then DBUS_MOUNTS+=(-v /var/run/dbus:/var/run/dbus)
+    fi
+    USERNS_ARGS=()
+    if podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null | grep -qi '^true$'; then
+        USERNS_ARGS=(--userns=keep-id)
+    fi
+    exec podman run --rm \
+        --net=host \
+        "${USERNS_ARGS[@]}" \
+        "${DBUS_MOUNTS[@]}" \
+        "$IMAGE" --scan
 fi
 
 # --- Daemon / pair modes ---

@@ -7,10 +7,11 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use bluer::{Adapter, AdapterEvent, Address, Device, Session};
 use futures::StreamExt;
 use tokio::time::timeout;
+use tracing::info;
 
 pub struct Ble {
     pub adapter: Adapter,
@@ -69,8 +70,46 @@ impl Ble {
         Ok(out)
     }
 
+    /// Discover `target` via a brief scan so BlueZ's object cache catches
+    /// the advertisement. Returns as soon as the target is seen, or errors
+    /// after `dur` if it isn't.
+    pub async fn discover(&self, target: Address, dur: Duration) -> Result<()> {
+        let mut events = self
+            .adapter
+            .discover_devices()
+            .await
+            .context("start discovery")?;
+        let wait = async {
+            while let Some(ev) = events.next().await {
+                if let AdapterEvent::DeviceAdded(addr) = ev {
+                    if addr == target {
+                        return Ok::<(), anyhow::Error>(());
+                    }
+                }
+            }
+            bail!("discovery stream ended before {target} was seen")
+        };
+        match timeout(dur, wait).await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(anyhow!(
+                "device {target} did not advertise within {} seconds — \
+                 is bluetooth enabled on the meter? (press the BT button)",
+                dur.as_secs()
+            )),
+        }
+    }
+
     /// Connect to a device by MAC address and return the `Device` handle.
+    /// `adapter.device(addr)` returns a proxy even for MACs BlueZ has never
+    /// seen, so a subsequent `.connect()` errors with "target object not
+    /// present or removed" — we run a brief discovery first so BlueZ
+    /// actually catches the advertisement.  Cached / currently-advertising
+    /// devices resolve in milliseconds because `discover_devices()`
+    /// re-emits `DeviceAdded` for known entries.
     pub async fn connect(&self, addr: Address) -> Result<Device> {
+        info!("looking for {addr} on the air…");
+        self.discover(addr, Duration::from_secs(15)).await?;
         let dev = self
             .adapter
             .device(addr)
