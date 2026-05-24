@@ -68,9 +68,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 if ! podman image exists "$IMAGE"; then
-    echo "error: image '$IMAGE' not found. Build it first:" >&2
-    echo "  podman build -t $IMAGE $(dirname "$(realpath "$0")")" >&2
-    exit 1
+    echo "image '$IMAGE' not present locally — trying podman pull…" >&2
+    if ! podman pull "$IMAGE"; then
+        echo "error: image '$IMAGE' is not available locally or in the registry." >&2
+        echo "  if it's a local image, build it with:" >&2
+        echo "    podman build -t $IMAGE $(dirname "$(realpath "$0")")" >&2
+        exit 1
+    fi
 fi
 
 # --- Daemon / pair modes ---
