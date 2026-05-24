@@ -185,6 +185,17 @@ if [[ $MODE == daemon || $MODE == pair || $MODE == dump ]]; then
     fi
     # Pass through RUST_LOG so users can crank up tracing without rebuilding.
     if [[ -n ${RUST_LOG:-} ]]; then ENV_ARGS+=(-e "RUST_LOG=$RUST_LOG"); fi
+    # Pass through an external device-catalogue JSON if the user has one.
+    # Bind-mount it at a stable container path and point the env var there.
+    if [[ -n ${OMBLEPY_DEVICES_JSON:-} ]]; then
+        if [[ -r $OMBLEPY_DEVICES_JSON ]]; then
+            EXT_ABS="$(realpath "$OMBLEPY_DEVICES_JSON")"
+            DBUS_MOUNTS+=(-v "$EXT_ABS:/etc/omblepy-devices.json:ro,Z")
+            ENV_ARGS+=(-e "OMBLEPY_DEVICES_JSON=/etc/omblepy-devices.json")
+        else
+            echo "warning: \$OMBLEPY_DEVICES_JSON=$OMBLEPY_DEVICES_JSON is not readable; ignoring" >&2
+        fi
+    fi
 
     if [[ $MODE == pair ]]; then
         echo "Pairing mode — make sure the meter is in pairing mode now."

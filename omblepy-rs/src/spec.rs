@@ -10,9 +10,11 @@
 //! lookup keyed by the device family.
 
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 use anyhow::{Context, Result, anyhow};
 use serde::Deserialize;
+use tracing::warn;
 
 /// One field's bit slot inside the 8-byte parsed record.
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -90,26 +92,58 @@ pub fn parse_catalogue(json: &str) -> Result<HashMap<String, DeviceSpec>> {
     Ok(by_name)
 }
 
+/// Environment variable that points at a user-supplied JSON file with
+/// the same schema as the embedded catalogue.  Entries from the external
+/// file override entries with the same canonical name; entirely new
+/// models extend the catalogue.  Mirrors ubpm's `JSON_EXT` pattern.
+pub const OVERRIDE_ENV: &str = "OMBLEPY_DEVICES_JSON";
+
 /// The embedded catalogue from ubpm's `omron-bluetooth.json`, accessible
-/// without disk I/O.  Used as the default device source by `lookup`.
+/// without disk I/O.  Internal — call `catalogue()` for the merged view.
 pub fn embedded() -> Result<HashMap<String, DeviceSpec>> {
     parse_catalogue(EMBEDDED_CATALOGUE)
 }
 
-/// Look up a device by name in the embedded catalogue.
+/// Merged embedded + external (from `$OMBLEPY_DEVICES_JSON`) catalogue,
+/// parsed once and cached for the lifetime of the process.
+pub fn catalogue() -> &'static HashMap<String, DeviceSpec> {
+    static CATALOGUE: OnceLock<HashMap<String, DeviceSpec>> = OnceLock::new();
+    CATALOGUE.get_or_init(|| {
+        let mut cat = parse_catalogue(EMBEDDED_CATALOGUE)
+            .expect("embedded devices.json is well-formed");
+        if let Ok(path) = std::env::var(OVERRIDE_ENV) {
+            match std::fs::read_to_string(&path) {
+                Ok(text) => match parse_catalogue(&text) {
+                    Ok(ext) => {
+                        let n = ext.len();
+                        for (k, v) in ext {
+                            cat.insert(k, v);
+                        }
+                        tracing::info!(
+                            "loaded {n} device entries from {OVERRIDE_ENV}={path}"
+                        );
+                    }
+                    Err(e) => warn!("ignoring {OVERRIDE_ENV}={path}: parse error: {e:?}"),
+                },
+                Err(e) => warn!("ignoring {OVERRIDE_ENV}={path}: read error: {e}"),
+            }
+        }
+        cat
+    })
+}
+
+/// Look up a device by name in the merged catalogue.
 pub fn lookup(name: &str) -> Result<DeviceSpec> {
-    let cat = embedded()?;
     let key = canonical_name(name);
-    cat.get(&key)
+    catalogue()
+        .get(&key)
         .cloned()
         .ok_or_else(|| anyhow!("unsupported device '{name}' — run `list-devices` for the catalogue"))
 }
 
-/// Names known to the embedded catalogue, sorted for stable output.
+/// Names known to the merged catalogue, sorted for stable output.
 pub fn known_names() -> Vec<String> {
-    let mut names: Vec<String> = embedded()
-        .map(|c| c.into_values().map(|s| s.model).collect())
-        .unwrap_or_default();
+    let mut names: Vec<String> = catalogue().values().map(|s| s.model.clone()).collect();
     names.sort();
     names
 }
@@ -152,5 +186,67 @@ mod tests {
     fn parse_rejects_malformed_json() {
         let err = parse_catalogue("{ not valid }").unwrap_err();
         assert!(format!("{err:?}").contains("parse devices.json"));
+    }
+
+    #[test]
+    fn external_catalogue_merges_with_embedded() {
+        // The merge logic itself — same shape both sides, external wins
+        // on name conflicts, novel entries extend the map.  Mirrors what
+        // `catalogue()` does at runtime when $OMBLEPY_DEVICES_JSON is set.
+        let mut combined = parse_catalogue(EMBEDDED_CATALOGUE).unwrap();
+        let external = r#"[
+          {
+            "model"     : "HEM-7361T",
+            "alias"     : "user override",
+            "helper"    : "test",
+            "user"      : 1,
+            "memory"    : 50,
+            "addr1"     : "0xBEEF",
+            "addr2"     : "0xBEEF",
+            "step"      : 16,
+            "bigendian" : false,
+            "pairing"   : true,
+            "uuid"      : "ecbe3980-c9a2-11e1-b1bd-0002a5d5c51b",
+            "data": {
+              "year":{"byte":3,"bit":0,"len":6},"month":{"byte":4,"bit":10,"len":4},
+              "day":{"byte":4,"bit":5,"len":5},"hour":{"byte":4,"bit":0,"len":5},
+              "minute":{"byte":6,"bit":6,"len":6},"second":{"byte":6,"bit":0,"len":6},
+              "sys":{"byte":0,"bit":0,"len":8},"dia":{"byte":1,"bit":0,"len":8},
+              "bpm":{"byte":2,"bit":0,"len":8},"ihb":{"byte":4,"bit":14,"len":1},
+              "mov":{"byte":4,"bit":15,"len":1}
+            }
+          },
+          {
+            "model"     : "HEM-CUSTOM-X",
+            "alias"     : "user-added model",
+            "helper"    : "test",
+            "user"      : 1,
+            "memory"    : 25,
+            "addr1"     : "0x0100",
+            "addr2"     : "0x0100",
+            "step"      : 16,
+            "bigendian" : false,
+            "pairing"   : true,
+            "uuid"      : "ecbe3980-c9a2-11e1-b1bd-0002a5d5c51b",
+            "data": {
+              "year":{"byte":3,"bit":0,"len":6},"month":{"byte":4,"bit":10,"len":4},
+              "day":{"byte":4,"bit":5,"len":5},"hour":{"byte":4,"bit":0,"len":5},
+              "minute":{"byte":6,"bit":6,"len":6},"second":{"byte":6,"bit":0,"len":6},
+              "sys":{"byte":0,"bit":0,"len":8},"dia":{"byte":1,"bit":0,"len":8},
+              "bpm":{"byte":2,"bit":0,"len":8},"ihb":{"byte":4,"bit":14,"len":1},
+              "mov":{"byte":4,"bit":15,"len":1}
+            }
+          }
+        ]"#;
+        let ext = parse_catalogue(external).unwrap();
+        for (k, v) in ext {
+            combined.insert(k, v);
+        }
+        // Embedded 7361T was memory=100; external wins with memory=50.
+        assert_eq!(combined.get("hem-7361t").unwrap().memory, 50);
+        // Embedded entries unrelated to the override are untouched.
+        assert_eq!(combined.get("hem-7530t").unwrap().memory, 90);
+        // Novel entry made it in.
+        assert!(combined.contains_key("hem-custom-x"));
     }
 }
