@@ -7,7 +7,7 @@ use super::common::{parse_old_be_record_v2, sync_time_old_be};
 pub struct Hem7322t;
 
 impl DeviceDriver for Hem7322t {
-    fn name(&self) -> &'static str { "hem-7322t" }
+    fn name(&self) -> &str { "hem-7322t" }
     fn endian(&self) -> Endian { Endian::Big }
     fn user_start_addresses(&self) -> &[u16] { &[0x02ac, 0x0824] }
     fn per_user_records_count(&self) -> &[u16] { &[100, 100] }

@@ -34,7 +34,7 @@ pub struct SettingsLayout {
 
 /// Trait every device-specific driver implements.
 pub trait DeviceDriver: Send + Sync {
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str;
     fn endian(&self) -> Endian;
     fn user_start_addresses(&self) -> &[u16];
     fn per_user_records_count(&self) -> &[u16];
@@ -347,7 +347,7 @@ mod tests {
 
     struct FakeDriver;
     impl DeviceDriver for FakeDriver {
-        fn name(&self) -> &'static str { "fake" }
+        fn name(&self) -> &str { "fake" }
         fn endian(&self) -> Endian { Endian::Little }
         fn user_start_addresses(&self) -> &[u16] { &[0x100] }
         fn per_user_records_count(&self) -> &[u16] { &[10] }

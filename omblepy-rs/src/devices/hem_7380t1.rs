@@ -13,7 +13,7 @@ const UNLOCK_UUID: Uuid = Uuid::from_u128(0xb305b680_aee7_11e1_a730_0002a5d5c51b
 pub struct Hem7380t1;
 
 impl DeviceDriver for Hem7380t1 {
-    fn name(&self) -> &'static str { "hem-7380t1" }
+    fn name(&self) -> &str { "hem-7380t1" }
     fn endian(&self) -> Endian { Endian::Little }
     fn user_start_addresses(&self) -> &[u16] { &[0x01C4, 0x0804] }
     fn per_user_records_count(&self) -> &[u16] { &[100, 100] }

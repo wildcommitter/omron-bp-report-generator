@@ -7,7 +7,7 @@ use super::common::{parse_modern_le_record, sync_time_modern_le};
 pub struct Hem7155t;
 
 impl DeviceDriver for Hem7155t {
-    fn name(&self) -> &'static str { "hem-7155t" }
+    fn name(&self) -> &str { "hem-7155t" }
     fn endian(&self) -> Endian { Endian::Little }
     fn user_start_addresses(&self) -> &[u16] { &[0x0098, 0x0458] }
     fn per_user_records_count(&self) -> &[u16] { &[60, 60] }

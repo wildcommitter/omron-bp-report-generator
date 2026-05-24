@@ -5,6 +5,7 @@ use crate::protocol::ChannelConfig;
 use crate::shared::DeviceDriver;
 
 pub mod common;
+pub mod generic;
 mod hem_6232t;
 mod hem_7150t;
 mod hem_7155t;

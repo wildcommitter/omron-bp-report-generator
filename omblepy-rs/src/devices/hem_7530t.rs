@@ -7,7 +7,7 @@ use super::common::parse_old_be_record_v1;
 pub struct Hem7530t;
 
 impl DeviceDriver for Hem7530t {
-    fn name(&self) -> &'static str { "hem-7530t" }
+    fn name(&self) -> &str { "hem-7530t" }
     fn endian(&self) -> Endian { Endian::Big }
     fn user_start_addresses(&self) -> &[u16] { &[0x02e8] }
     fn per_user_records_count(&self) -> &[u16] { &[90] }
