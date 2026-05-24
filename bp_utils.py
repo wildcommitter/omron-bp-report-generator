@@ -1,15 +1,20 @@
-"""Locale-tolerant reading of OMRON Complete CSV exports.
+"""Locale-tolerant reading of blood-pressure CSV exports.
 
-OMRON exports both column headers and `Fecha`/`Hora` values in whatever
-locale the device is configured to use. This module handles both:
+Two input shapes are supported:
 
-  * `parse_dt()` turns a date/time pair into a Timestamp, accepting
-    Spanish, English, French, German, Italian, Portuguese and Dutch
-    month abbreviations plus ISO 8601 and common numeric formats.
-  * `load_omron_csv()` reads a CSV, finds the relevant columns by
-    semantic kind (date / time / sys / dia / pulse) regardless of the
-    header language, and returns a tidy DataFrame with the standard
-    column names `ts`, `sys`, `dia`, `pulse`.
+  * **OMRON Complete app export** — separate `Fecha`/`Hora` columns
+    in the device's configured locale (Spanish/English/French/German/
+    Italian/Portuguese/Dutch month abbreviations, plus ISO 8601 and
+    common numeric formats). Pulse is `Pulso (ppm)` or the localised
+    equivalent.
+  * **`omron-rs sync --format csv`** — single ISO 8601 `datetime`
+    column with `sys,dia,map,unit,bpm,user_id,status` alongside it
+    (see https://github.com/wildcommitter/omron-rs). Pulse column
+    is `bpm`. Rows in kPa are auto-converted to mmHg.
+
+`load_omron_csv()` returns a tidy DataFrame with the standard column
+names `ts`, `sys`, `dia`, `pulse` regardless of which shape the input
+file has.
 """
 from __future__ import annotations
 
@@ -92,12 +97,16 @@ def parse_dt(date_str: str, time_str: str) -> pd.Timestamp:
 # start (anchored with ^) so unit suffixes like "(mmHg)" or "(bpm)" are
 # tolerated. Case-insensitive.
 _COLUMN_PATTERNS = {
+    "datetime": r"^\s*(datetime|date[_\- ]?time|timestamp|ts)\s*$",
     "date":  r"^\s*(fecha|date|datum|data)\b",
     "time":  r"^\s*(hora|heure|time|uhrzeit|ora|tijd)\b",
-    "sys":   r"^\s*(sist[oó]lic|systolic|systolique|systolisch)",
-    "dia":   r"^\s*(diast[oó]lic|diastolic|diastolique|diastolisch)",
-    "pulse": r"^\s*(puls|pouls|pulso|polso|hartslag)",
+    "sys":   r"^\s*(sist[oó]lic|systolic|systolique|systolisch|sys\b)",
+    "dia":   r"^\s*(diast[oó]lic|diastolic|diastolique|diastolisch|dia\b)",
+    "pulse": r"^\s*(puls|pouls|pulso|polso|hartslag|bpm|heart)",
+    "unit":  r"^\s*unit\s*$",
 }
+
+_KPA_TO_MMHG = 7.50062
 
 
 def find_column(df: pd.DataFrame, kind: str) -> str:
@@ -110,26 +119,52 @@ def find_column(df: pd.DataFrame, kind: str) -> str:
         f"No column matching {kind!r} in CSV header: {list(df.columns)}")
 
 
-def load_omron_csv(path) -> pd.DataFrame:
-    """Read an OMRON Complete CSV in any supported locale into a tidy frame.
+def _maybe_find(df: pd.DataFrame, kind: str) -> str | None:
+    try:
+        return find_column(df, kind)
+    except KeyError:
+        return None
 
-    Returns a DataFrame with columns `ts` (Timestamp), `sys`, `dia`, `pulse`
-    (int), sorted ascending by `ts`. Non-numeric rows (averages, blanks,
-    etc.) are dropped.
+
+def load_omron_csv(path) -> pd.DataFrame:
+    """Read a blood-pressure CSV into a tidy frame.
+
+    Accepts both the OMRON Complete app export (locale-aware
+    `Fecha`/`Hora`) and `omron-rs sync --format csv` (ISO 8601
+    `datetime`). Returns columns `ts` (Timestamp), `sys`, `dia`,
+    `pulse` (int), sorted ascending by `ts`. Rows with non-numeric
+    sys/dia/pulse or unparseable timestamps are dropped.
     """
     df = pd.read_csv(path)
-    cols = {kind: find_column(df, kind)
-            for kind in ("date", "time", "sys", "dia", "pulse")}
+    sys_col = find_column(df, "sys")
+    dia_col = find_column(df, "dia")
+    pulse_col = find_column(df, "pulse")
+    dt_col = _maybe_find(df, "datetime")
 
-    sys_numeric = pd.to_numeric(df[cols["sys"]], errors="coerce")
-    df = df[sys_numeric.notna()].copy()
+    if dt_col is not None:
+        ts = pd.to_datetime(df[dt_col], errors="coerce", utc=False)
+    else:
+        date_col = find_column(df, "date")
+        time_col = find_column(df, "time")
+        ts = pd.Series(
+            [parse_dt(d, t) if pd.notna(d) and pd.notna(t) else pd.NaT
+             for d, t in zip(df[date_col], df[time_col])],
+            index=df.index,
+        )
 
-    df["ts"] = [parse_dt(d, t)
-                for d, t in zip(df[cols["date"]], df[cols["time"]])]
-    df = df.rename(columns={cols["sys"]: "sys",
-                            cols["dia"]: "dia",
-                            cols["pulse"]: "pulse"})
-    return (df[["ts", "sys", "dia", "pulse"]]
-            .astype({"sys": int, "dia": int, "pulse": int})
+    sys = pd.to_numeric(df[sys_col], errors="coerce")
+    dia = pd.to_numeric(df[dia_col], errors="coerce")
+    pulse = pd.to_numeric(df[pulse_col], errors="coerce")
+
+    unit_col = _maybe_find(df, "unit")
+    if unit_col is not None:
+        kpa = df[unit_col].astype(str).str.strip().str.lower().eq("kpa")
+        if kpa.any():
+            sys = sys.mask(kpa, sys * _KPA_TO_MMHG)
+            dia = dia.mask(kpa, dia * _KPA_TO_MMHG)
+
+    out = pd.DataFrame({"ts": ts, "sys": sys, "dia": dia, "pulse": pulse})
+    out = out.dropna(subset=["ts", "sys", "dia", "pulse"])
+    return (out.astype({"sys": int, "dia": int, "pulse": int})
             .sort_values("ts")
             .reset_index(drop=True))

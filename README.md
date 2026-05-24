@@ -92,8 +92,17 @@ without duplicating code:
 
 ## Inputs
 
-- `input.csv` — OMRON Complete export (Spanish locale: `Fecha`, `Hora`,
-  `Sistólica`, `Diastólica`, `Pulso`, …).
+`input.csv` is accepted in either of two shapes:
+
+- **OMRON Complete app export** — separate `Fecha`/`Hora` columns in
+  any of Spanish / English / French / German / Italian / Portuguese /
+  Dutch locale, plus `Sistólica`, `Diastólica`, `Pulso` (or the
+  localised equivalents).
+- **[`omron-rs sync --format csv`][omron-rs]** — single ISO 8601
+  `datetime` column with `sys,dia,map,unit,bpm,user_id,status`.
+  Rows in kPa are auto-converted to mmHg.
+
+[omron-rs]: https://github.com/wildcommitter/omron-rs
 
 ## Generated artefacts
 

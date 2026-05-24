@@ -86,11 +86,19 @@ podman build -t bp-report .        # rebuild container image
 - **8-hour period boundaries** start at 07:00 and are defined by the
   `period()` function in `analyze.py`. Change there to shift them.
 - **Locale-tolerant CSV ingest** lives in `bp_utils.load_omron_csv()`,
-  which handles both the date *values* (Spanish / English / French /
-  German / Italian / Portuguese / Dutch month abbreviations + ISO 8601 +
-  numeric formats) and the *column headers* (Fecha/Date/Datum/Data,
-  Sistólica/Systolic/Systolique/…). Anything reading `input.csv`
-  should call this rather than `pd.read_csv` directly.
+  which accepts two input shapes:
+    * the **OMRON Complete app export** — separate `Fecha`/`Hora`
+      columns in the device's locale (Spanish / English / French /
+      German / Italian / Portuguese / Dutch month abbreviations + ISO
+      8601 + numeric formats), pulse column `Pulso (ppm)` etc.;
+    * **`omron-rs sync --format csv`** — single ISO 8601 `datetime`
+      column plus `sys,dia,map,unit,bpm,user_id,status` (see
+      [wildcommitter/omron-rs]). The `unit` column is honored:
+      kPa rows are auto-converted to mmHg.
+  Anything reading `input.csv` should call this rather than
+  `pd.read_csv` directly.
+
+  [wildcommitter/omron-rs]: https://github.com/wildcommitter/omron-rs
 - **NaN cells** in the PDF tables render as `—`, not `nan`
   (`add_table()` in `_render_pdf.py` handles this).
 
