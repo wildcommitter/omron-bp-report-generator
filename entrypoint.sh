@@ -27,6 +27,7 @@ for arg in "$@"; do
     case $arg in
         --daemon) MODE=daemon ;;
         --pair)   MODE=pair ;;
+        --dump)   MODE=dump ;;
         --list-devices) MODE=list-devices ;;
         --scan) MODE=scan ;;
         --pdf|--md|--markdown) PASSTHRU+=("$arg") ;;
@@ -35,8 +36,10 @@ for arg in "$@"; do
 Usage:
   <image> [CSV_PATH ...] [--pdf | --md]      # build a report from CSV(s)
   <image> --daemon [--pdf | --md]            # listen for the BLE meter
+  <image> --dump                             # one-shot read, merge into input.csv
   <image> --pair                             # write the pairing key
   <image> --list-devices                     # list known meter models
+  <image> --scan                             # show nearby BLE advertisements
 
 CSV mode (default): reads input.csv (or any positional CSVs) from /data
 and writes report.pdf / report.md next to them.  Multiple paths are
@@ -96,6 +99,24 @@ case $MODE in
             args+=(--key "$BP_PAIR_KEY")
         fi
         exec /app/omblepy-rs pair "${args[@]}"
+        ;;
+    dump)
+        bp_required_env BP_DEVICE
+        bp_required_env BP_MAC
+        args=(--device "$BP_DEVICE" --mac "$BP_MAC"
+              --output /data/omblepy-session.csv
+              --merge-into /data/input.csv
+              --merge-script /app/omron_merge.sh)
+        if [[ -n "${BP_PAIR_KEY:-}" ]]; then
+            args+=(--key "$BP_PAIR_KEY")
+        fi
+        if [[ "${BP_NEW_REC_ONLY:-}" == "1" ]]; then
+            args+=(--new-rec-only)
+        fi
+        if [[ "${BP_TIME_SYNC:-}" == "1" ]]; then
+            args+=(--time-sync)
+        fi
+        exec /app/omblepy-rs dump "${args[@]}"
         ;;
     daemon)
         bp_required_env BP_DEVICE
