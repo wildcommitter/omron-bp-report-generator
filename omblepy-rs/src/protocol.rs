@@ -175,6 +175,35 @@ fn hex(b: &[u8]) -> String {
     s
 }
 
+/// Subscribe to a characteristic's notifications, retrying through a short
+/// backoff if BlueZ reports the link as disconnected.  Used during the
+/// pair flow where the SMP renegotiation transiently drops the GATT link.
+async fn retry_notify(
+    ch: &Characteristic,
+    label: &str,
+) -> Result<impl futures::Stream<Item = Vec<u8>>> {
+    let mut delays_ms = [200u64, 500, 1000, 2000, 3000].into_iter();
+    loop {
+        match ch.notify().await {
+            Ok(s) => return Ok(s),
+            Err(e) => {
+                let again = delays_ms.next();
+                let msg = e.to_string();
+                let lower = msg.to_lowercase();
+                let transient = lower.contains("not connected")
+                    || lower.contains("notconnected")
+                    || lower.contains("operation already in progress");
+                if !transient || again.is_none() {
+                    return Err(anyhow::Error::new(e).context(label.to_string()));
+                }
+                let d = again.unwrap();
+                debug!("{label}: {msg} — retrying in {d}ms");
+                tokio::time::sleep(Duration::from_millis(d)).await;
+            }
+        }
+    }
+}
+
 pub struct Protocol {
     pub cfg: ChannelConfig,
     rx_chars: Vec<Characteristic>,
@@ -440,28 +469,49 @@ impl Protocol {
         // device (it sends an SMP Security Request in response). We hold the
         // resulting stream for the rest of the function so the bond completes
         // in the background while we hammer the unlock channel.
-        let _rx0_hold = self.rx_chars[0]
-            .notify()
-            .await
-            .context("subscribe rx ch0 to kick off bond")?;
+        //
+        // During SMP renegotiation BlueZ briefly disconnects the GATT link
+        // and re-establishes it — bleak hides this in Python, but bluer
+        // surfaces it as `org.bluez.Error.NotConnected` on the next
+        // notify/write.  Retry both subscriptions with a short backoff so
+        // the SMP exchange has time to settle.
+        let _rx0_hold = retry_notify(
+            &self.rx_chars[0],
+            "subscribe rx ch0 to kick off bond",
+        )
+        .await?;
 
-        let unlock_stream = unlock
-            .notify()
-            .await
-            .context("subscribe unlock channel")?;
+        let unlock_stream = retry_notify(unlock, "subscribe unlock channel").await?;
         let mut unlock_stream = Box::pin(unlock_stream);
 
         // Enter key-programming mode: write {0x02, 16 zero bytes}, expect 0x82 0x00
         // back. Retry up to 10 times to give the OS-level bond time to finish.
+        // Writes can transiently fail with "Not Connected" during SMP, so
+        // those are counted as a retry rather than a hard error.
         let mut entered = false;
         let mut last_response: Vec<u8> = Vec::new();
         for attempt in 0..10u32 {
             let mut cmd = [0u8; 17];
             cmd[0] = 0x02;
-            unlock
-                .write(&cmd)
-                .await
-                .with_context(|| format!("write key-programming request attempt {}", attempt + 1))?;
+            match unlock.write(&cmd).await {
+                Ok(()) => {}
+                Err(e) => {
+                    let msg = e.to_string();
+                    let lower = msg.to_lowercase();
+                    if lower.contains("not connected") || lower.contains("notconnected") {
+                        debug!(
+                            "attempt {}/10: write transient-disconnect ({msg}), backing off",
+                            attempt + 1
+                        );
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        continue;
+                    }
+                    return Err(anyhow::Error::new(e).context(format!(
+                        "write key-programming request attempt {}",
+                        attempt + 1
+                    )));
+                }
+            }
             match timeout(Duration::from_secs(2), unlock_stream.next()).await {
                 Ok(Some(resp)) => {
                     last_response = resp;
