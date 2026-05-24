@@ -122,24 +122,37 @@ impl Ble {
         Ok(dev)
     }
 
-    /// Wait until the device exposes `service_uuid`, polling every 250ms.
-    /// Mirrors the 20-iteration / 0.25s wait in omblepy.py's `main()`.
+    /// Wait until the device exposes `service_uuid` via GATT, polling every
+    /// 250ms.  Mirrors the 20-iteration / 0.25s wait in omblepy.py's `main()`,
+    /// but checks the discovered GATT service list (active) rather than the
+    /// advertised UUID list (passive) — some Omron firmwares don't include
+    /// the legacy parent service in their advertisement.
     pub async fn wait_for_service(
         &self,
         dev: &Device,
         service_uuid: bluer::Uuid,
         attempts: usize,
     ) -> Result<()> {
+        let mut last_seen: Vec<bluer::Uuid> = Vec::new();
         for _ in 0..attempts {
-            let uuids = dev.uuids().await.ok().flatten().unwrap_or_default();
-            if uuids.contains(&service_uuid) {
-                return Ok(());
+            if let Ok(services) = dev.services().await {
+                last_seen.clear();
+                for s in services {
+                    if let Ok(u) = s.uuid().await {
+                        last_seen.push(u);
+                        if u == service_uuid {
+                            return Ok(());
+                        }
+                    }
+                }
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
         Err(anyhow!(
-            "required service {service_uuid} not exposed by device {}",
-            dev.address()
+            "required service {service_uuid} not exposed by device {} \
+             (services discovered: {:?})",
+            dev.address(),
+            last_seen
         ))
     }
 }
