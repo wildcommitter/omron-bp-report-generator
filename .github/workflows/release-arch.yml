@@ -1,0 +1,113 @@
+name: Release Arch package
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to stamp onto the package (no leading v). Defaults to a date-stamped dev build.'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+      # The github-cli release upload needs the workspace to be writable
+      # by the (root) container user that the action runs as.
+      options: --user root
+
+    steps:
+      - name: Install build tooling
+        run: |
+          set -euxo pipefail
+          pacman -Sy --noconfirm
+          pacman -S --noconfirm --needed git pacman-contrib github-cli
+
+      - name: Add unprivileged makepkg user
+        run: |
+          set -euxo pipefail
+          # makepkg refuses to run as root.  Drop to a builder user and let
+          # it sudo as needed for pacman calls (we won't need that here
+          # since all deps are already installed).
+          useradd -m -s /bin/bash builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+
+      - uses: actions/checkout@v4
+
+      - name: Resolve package version
+        id: ver
+        run: |
+          set -euxo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == 'tag' && "${GITHUB_REF_NAME:-}" == v* ]]; then
+              VER="${GITHUB_REF_NAME#v}"
+          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
+              VER="${{ github.event.inputs.version }}"
+          else
+              VER="0.0.0.dev$(date -u +%Y%m%d%H%M)"
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "Building bp-report-$VER"
+
+      - name: Stage PKGBUILD
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/build
+          cp packaging/arch/PKGBUILD /tmp/build/
+          sed -i "s/__PKGVER__/${{ steps.ver.outputs.version }}/g" /tmp/build/PKGBUILD
+          chown -R builder:builder /tmp/build
+
+      - name: Compute source checksum (updpkgsums)
+        run: |
+          set -euxo pipefail
+          cd /tmp/build
+          # `updpkgsums` downloads the source tarball, hashes it, and
+          # rewrites the `sha256sums=` line.  This way the published
+          # package carries a real integrity sum rather than `SKIP`.
+          # Tag-built workflows: the tarball exists on github.com once
+          # the tag has been pushed (which is what triggers the workflow).
+          # Dev builds: the tarball URL points at a tag that doesn't
+          # exist yet — updpkgsums fails, so we run it only on tag pushes
+          # and skip the sum (PKGBUILD already has `SKIP`) for dev runs.
+          if [[ "${GITHUB_REF_TYPE:-}" == 'tag' ]]; then
+              sudo -u builder updpkgsums
+          else
+              echo "non-tag build: leaving sha256sums=SKIP in place"
+          fi
+
+      - name: Build .pkg.tar.zst
+        run: |
+          set -euxo pipefail
+          cd /tmp/build
+          if [[ "${GITHUB_REF_TYPE:-}" == 'tag' ]]; then
+              sudo -u builder makepkg --noconfirm
+          else
+              # Dev build: skip integrity check since the tarball at the
+              # template tag URL may not exist yet.
+              sudo -u builder makepkg --noconfirm --skipinteg
+          fi
+          ls -la /tmp/build/*.pkg.tar.zst
+
+      - name: Upload package as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bp-report-arch-pkg
+          path: /tmp/build/*.pkg.tar.zst
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          cd /tmp/build
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+              gh release create "$GITHUB_REF_NAME" --generate-notes \
+                  --title "$GITHUB_REF_NAME"
+          fi
+          gh release upload "$GITHUB_REF_NAME" *.pkg.tar.zst --clobber

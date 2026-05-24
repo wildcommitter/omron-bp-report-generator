@@ -1,0 +1,39 @@
+# Maintainer: Wild Committer <guicifuentes88@gmail.com>
+#
+# Arch package for the bp-report launcher.  The launcher is a thin
+# `podman run` wrapper; this PKGBUILD installs it to /usr/bin and points
+# it at the pre-built container image published to GHCR for the same
+# release tag.
+#
+# `pkgver` is templated — the release-arch.yml workflow substitutes
+# `__PKGVER__` with the git tag (minus the leading `v`) before invoking
+# `updpkgsums` and `makepkg`.
+
+pkgname=bp-report
+pkgver=__PKGVER__
+pkgrel=1
+pkgdesc="Host launcher for the bp-report container — analyses OMRON Complete blood-pressure CSV exports into a clinical PDF report"
+arch=('any')
+url="https://github.com/wildcommitter/omron-bp-report-generator"
+license=('MIT')
+depends=('bash' 'podman')
+optdepends=(
+    'bluez: needed at runtime when the launcher is used in --daemon or --pair mode'
+)
+source=("$pkgname-$pkgver.tar.gz::https://github.com/wildcommitter/omron-bp-report-generator/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('SKIP')  # filled in by `updpkgsums` in the release workflow
+
+package() {
+    cd "$srcdir/omron-bp-report-generator-$pkgver"
+
+    # Default the installed launcher to the GHCR image for the same tag.
+    # The user can still override with `BP_REPORT_IMAGE=…` if they have a
+    # locally-built image or want a different tag.
+    sed -i \
+        -e "s|IMAGE=\"\${BP_REPORT_IMAGE:-bp-report}\"|IMAGE=\"\${BP_REPORT_IMAGE:-ghcr.io/wildcommitter/omron-bp-report-generator:v${pkgver}}\"|" \
+        bp-report
+
+    install -Dm755 bp-report "$pkgdir/usr/bin/bp-report"
+    install -Dm644 README.md  "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm644 CLAUDE.md  "$pkgdir/usr/share/doc/$pkgname/CLAUDE.md"
+}
