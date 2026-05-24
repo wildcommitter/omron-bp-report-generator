@@ -25,12 +25,26 @@ use futures::stream::{BoxStream, SelectAll, StreamExt, select_all};
 use tokio::time::timeout;
 use tracing::{debug, info, warn};
 
-/// Default 16-byte pairing key. Arbitrary but stable across the upstream
+/// Default 16-byte pairing key.  Arbitrary but stable across the upstream
 /// Python tool, so a device paired with omblepy keeps working under
 /// omblepy-rs.
 pub const DEFAULT_PAIRING_KEY: [u8; 16] = [
     0xde, 0xad, 0xbe, 0xaf, 0x12, 0x34, 0x12, 0x34,
     0xde, 0xad, 0xbe, 0xaf, 0x12, 0x34, 0x12, 0x34,
+];
+
+/// Pairing key used by the ubpm vendor plugin (Qt/C++ app at
+/// `ubpm/sources/plugins/vendor/omron/bluetooth`), ASCII "UBPM-PairingKey!".
+/// Meters previously paired with ubpm carry this one.
+pub const UBPM_PAIRING_KEY: [u8; 16] = *b"UBPM-PairingKey!";
+
+/// Keys we will try in order when the user hasn't given an explicit
+/// `--key` override.  First-match wins; the discovered key is reused for
+/// the rest of the session.  Order: omblepy default first (most common
+/// outcome for a meter paired via the upstream Python tool), then ubpm.
+pub const KNOWN_PAIRING_KEYS: &[(&str, [u8; 16])] = &[
+    ("omblepy default", DEFAULT_PAIRING_KEY),
+    ("ubpm UBPM-PairingKey!", UBPM_PAIRING_KEY),
 ];
 
 /// Parse a 32-character hex string into a 16-byte pairing key.
@@ -585,6 +599,35 @@ impl Protocol {
             bail!("entered pairing key does not match stored one (resp {:02x?})", resp);
         }
         Ok(())
+    }
+
+    /// Try unlocking with each known pairing key in turn.  Returns the
+    /// label of the key that worked.  Useful when the user hasn't given
+    /// an explicit `--key` — covers both omblepy-paired and
+    /// ubpm-paired meters without prompting.
+    pub async fn unlock_with_known_keys(&mut self) -> Result<&'static str> {
+        if !self.cfg.requires_unlock {
+            return Ok("(no unlock required)");
+        }
+        let mut last_err: Option<anyhow::Error> = None;
+        for (label, key) in KNOWN_PAIRING_KEYS {
+            match self.unlock(key).await {
+                Ok(()) => {
+                    info!("unlocked with key: {label}");
+                    return Ok(label);
+                }
+                Err(e) => {
+                    debug!("unlock with {label} rejected: {e}");
+                    last_err = Some(e);
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| anyhow!("no known keys configured")).context(
+            format!(
+                "tried {} known pairing keys; none accepted — use --key to specify one",
+                KNOWN_PAIRING_KEYS.len()
+            ),
+        ))
     }
 }
 

@@ -177,9 +177,10 @@ async fn main() -> Result<()> {
             let driver = devices::driver_for(&device).ok_or_else(|| {
                 anyhow::anyhow!("unsupported device '{}', run `list-devices` to see options", device)
             })?;
-            let key = match key {
-                Some(s) => protocol::parse_pairing_key(&s)?,
-                None => protocol::DEFAULT_PAIRING_KEY,
+            // None → unlock tries every known key in `KNOWN_PAIRING_KEYS`.
+            let key: Option<[u8; 16]> = match key {
+                Some(s) => Some(protocol::parse_pairing_key(&s)?),
+                None => None,
             };
             let cfg = driver.channel_config();
             let ble = ble::Ble::new().await?;
@@ -187,9 +188,15 @@ async fn main() -> Result<()> {
             let dev = ble.connect(addr).await.context("connect to meter")?;
             ble.wait_for_service(&dev, cfg.parent_service, 20).await?;
             let mut proto = protocol::Protocol::new(&dev, cfg).await?;
-            let users = shared::read_records(&mut proto, &*driver, &key, new_rec_only, time_sync)
-                .await
-                .context("pull records from meter")?;
+            let users = shared::read_records(
+                &mut proto,
+                &*driver,
+                key.as_ref(),
+                new_rec_only,
+                time_sync,
+            )
+            .await
+            .context("pull records from meter")?;
             let total: usize = users.iter().map(|u| u.len()).sum();
             let flat = csv_out::flatten_users(users);
             csv_out::write_records(&output, &flat)?;
@@ -216,9 +223,11 @@ async fn main() -> Result<()> {
             key,
             time_sync,
         } => {
-            let key = match key {
-                Some(s) => protocol::parse_pairing_key(&s)?,
-                None => protocol::DEFAULT_PAIRING_KEY,
+            // None → daemon's read_records calls unlock_with_known_keys,
+            // which tries omblepy + ubpm in turn until one is accepted.
+            let key: Option<[u8; 16]> = match key {
+                Some(s) => Some(protocol::parse_pairing_key(&s)?),
+                None => None,
             };
             let cfg = daemon::DaemonConfig {
                 device_name: device,

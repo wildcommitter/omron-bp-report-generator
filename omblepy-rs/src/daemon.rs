@@ -36,7 +36,9 @@ use crate::shared::read_records;
 pub struct DaemonConfig {
     pub device_name: String,
     pub mac: Address,
-    pub pairing_key: [u8; 16],
+    /// `None` → try every known pairing key (omblepy default, ubpm, …)
+    /// until one is accepted.  `Some` → only attempt that single key.
+    pub pairing_key: Option<[u8; 16]>,
     pub session_csv: PathBuf,
     pub merge_target: PathBuf,
     pub merge_script: PathBuf,
@@ -154,7 +156,7 @@ async fn run_session(
     let users = read_records(
         &mut proto,
         driver,
-        &cfg.pairing_key,
+        cfg.pairing_key.as_ref(),
         /* new-rec-only = */ true,
         cfg.time_sync_each_session,
     )

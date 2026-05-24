@@ -208,11 +208,20 @@ fn reset_unread_counter_in_cache(
 pub async fn read_records(
     proto: &mut Protocol,
     driver: &dyn DeviceDriver,
-    pairing_key: &[u8; 16],
+    pairing_key: Option<&[u8; 16]>,
     use_unread_counter: bool,
     sync_time: bool,
 ) -> Result<Vec<Vec<Record>>> {
-    proto.unlock(pairing_key).await.context("unlock device")?;
+    // Either honor the user's explicit --key, or try every known key in turn.
+    match pairing_key {
+        Some(k) => proto.unlock(k).await.context("unlock device")?,
+        None => {
+            proto
+                .unlock_with_known_keys()
+                .await
+                .context("unlock device")?;
+        }
+    }
     proto.start_transmission().await?;
 
     let layout = driver.settings_layout();
