@@ -1,0 +1,72 @@
+name: Release Arch package
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to attach the package to (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+      options: --user root
+
+    steps:
+      - name: Install build tools
+        run: |
+          pacman -Syu --noconfirm git sudo
+
+      - name: Create unprivileged build user
+        run: |
+          useradd -m -G wheel builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+              TAG="${{ inputs.tag }}"
+          else
+              TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Stage PKGBUILD inputs
+        run: |
+          install -d build
+          cp packaging/arch/PKGBUILD build/PKGBUILD
+          cp bp-report README.md build/
+          sed -i "s/^pkgver=.*/pkgver=${{ steps.version.outputs.version }}/" build/PKGBUILD
+          chown -R builder:builder build
+
+      - name: Build package
+        run: |
+          cd build
+          sudo -u builder makepkg --noconfirm --skipinteg --nodeps
+
+      - name: Locate built package
+        id: pkg
+        run: |
+          PKG=$(ls build/bp-report-*.pkg.tar.zst | head -n1)
+          echo "path=$PKG" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$PKG")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: ${{ steps.pkg.outputs.path }}
+          fail_on_unmatched_files: true

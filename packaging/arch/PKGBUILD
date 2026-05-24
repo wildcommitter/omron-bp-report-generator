@@ -1,0 +1,16 @@
+# Maintainer: Wild Committer <guicifuentes88@gmail.com>
+pkgname=bp-report
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="OMRON Complete blood-pressure CSV to clinical PDF report (podman launcher)"
+arch=('any')
+url="https://github.com/wildcommitter/omron-bp-report-generator"
+license=('custom')
+depends=('bash' 'podman')
+source=('bp-report' 'README.md')
+sha256sums=('SKIP' 'SKIP')
+
+package() {
+    install -Dm755 "${srcdir}/bp-report" "${pkgdir}/usr/bin/bp-report"
+    install -Dm644 "${srcdir}/README.md" "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+}
