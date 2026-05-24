@@ -1,9 +1,11 @@
+use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 mod ble;
+mod csv_out;
 mod devices;
 mod protocol;
 mod shared;
@@ -42,6 +44,27 @@ enum Cmd {
         /// Override the 32-char-hex pairing key. Defaults to upstream
         /// omblepy's `deadbeaf…` so devices paired with the Python tool
         /// keep working.
+        #[arg(long, short = 'k')]
+        key: Option<String>,
+    },
+    /// One-shot read: connect to a paired meter, pull records, write a
+    /// CSV in OMRON-Complete schema that bp_utils.load_omron_csv() reads.
+    Dump {
+        #[arg(long, short = 'd')]
+        device: String,
+        #[arg(long, short = 'm')]
+        mac: String,
+        /// Output CSV path. Defaults to ./omblepy.csv next to cwd.
+        #[arg(long, short = 'o', default_value = "omblepy.csv")]
+        output: PathBuf,
+        /// Only fetch records flagged as unread (and clear the counter
+        /// on the device). Otherwise read all 100 slots per user.
+        #[arg(long, short = 'n')]
+        new_rec_only: bool,
+        /// Sync the meter's clock with the host's local time.
+        #[arg(long, short = 't')]
+        time_sync: bool,
+        /// Override the 32-char-hex pairing key.
         #[arg(long, short = 'k')]
         key: Option<String>,
     },
@@ -90,7 +113,6 @@ async fn main() -> Result<()> {
             let dev = ble.connect(addr).await.context("connect to meter")?;
 
             if driver.os_bonding_only() {
-                // HEM-7380T1: no in-band key write; just ask the OS to bond.
                 dev.pair().await.context("OS-level BLE bond request")?;
                 println!("Bonded {mac} as {device} via the OS.");
                 return Ok(());
@@ -99,11 +121,43 @@ async fn main() -> Result<()> {
             ble.wait_for_service(&dev, cfg.parent_service, 20).await?;
             let mut proto = protocol::Protocol::new(&dev, cfg).await?;
             proto.write_pairing_key(&key).await?;
-            // Upstream omblepy does a start+end transmission after a fresh
-            // pair to settle the device; mirror that.
             proto.start_transmission().await?;
             proto.end_transmission().await?;
             println!("Paired {mac} as {device}. You can now drop the --pair flag.");
+        }
+        Cmd::Dump {
+            device,
+            mac,
+            output,
+            new_rec_only,
+            time_sync,
+            key,
+        } => {
+            let driver = devices::driver_for(&device).ok_or_else(|| {
+                anyhow::anyhow!("unsupported device '{}', run `list-devices` to see options", device)
+            })?;
+            let key = match key {
+                Some(s) => protocol::parse_pairing_key(&s)?,
+                None => protocol::DEFAULT_PAIRING_KEY,
+            };
+            let cfg = driver.channel_config();
+            let ble = ble::Ble::new().await?;
+            let addr = ble::parse_mac(&mac)?;
+            let dev = ble.connect(addr).await.context("connect to meter")?;
+            ble.wait_for_service(&dev, cfg.parent_service, 20).await?;
+            let mut proto = protocol::Protocol::new(&dev, cfg).await?;
+            let users = shared::read_records(&mut proto, &*driver, &key, new_rec_only, time_sync)
+                .await
+                .context("pull records from meter")?;
+            let total: usize = users.iter().map(|u| u.len()).sum();
+            let flat = csv_out::flatten_users(users);
+            csv_out::write_records(&output, &flat)?;
+            println!(
+                "Wrote {} record(s) ({} after dedup) to {}",
+                total,
+                flat.len(),
+                output.display()
+            );
         }
     }
     Ok(())
