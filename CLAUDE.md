@@ -42,6 +42,10 @@ Cardiology-oriented additions on the PDF:
   date values via `parse_dt()`, and returns a tidy DataFrame with the
   standard column names `ts`, `sys`, `dia`, `pulse`. Imported by both
   `analyze.py` and `_render_pdf.py`.
+- `normalize_csv.py` — tiny CLI wrapper around `load_omron_csv` that
+  writes its tidy DataFrame as `ts,sys,dia,pulse`. Used by
+  `omron_merge.sh` to put heterogeneous inputs into a common shape
+  before csvstacking.
 - `analyze.py` — single pandas script that computes daily / period /
   weekly statistics, writes the per-stat CSVs, and renders every PNG
   via matplotlib. Single source of truth for the data plumbing.

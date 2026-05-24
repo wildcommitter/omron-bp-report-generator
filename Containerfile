@@ -15,8 +15,8 @@ RUN pip install --no-cache-dir \
         "seaborn>=0.13,<0.14" \
         "csvkit>=2,<3"
 
-COPY analyze.py _render_pdf.py bp_utils.py make_report.sh entrypoint.sh \
-     omron_merge.sh /app/
+COPY analyze.py _render_pdf.py bp_utils.py normalize_csv.py \
+     make_report.sh entrypoint.sh omron_merge.sh /app/
 RUN chmod +x /app/make_report.sh /app/entrypoint.sh /app/omron_merge.sh
 
 # /data is the volume mount point: it holds input.csv and receives outputs

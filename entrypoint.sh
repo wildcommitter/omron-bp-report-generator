@@ -59,7 +59,8 @@ if [[ ${#CSV_PATHS[@]} -gt 1 ]]; then
             exit 1
         fi
     done
-    /app/omron_merge.sh /data/input.csv "${CSV_PATHS[@]}"
+    env PYTHON_BIN=python SCRIPT_DIR=/app \
+        /app/omron_merge.sh /data/input.csv "${CSV_PATHS[@]}"
 elif [[ ${#CSV_PATHS[@]} -eq 1 ]]; then
     SINGLE="${CSV_PATHS[0]}"
     if [[ ! -f $SINGLE ]]; then
