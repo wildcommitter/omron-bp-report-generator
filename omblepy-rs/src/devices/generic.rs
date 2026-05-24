@@ -11,8 +11,29 @@ use crate::protocol::{
     ChannelConfig, LEGACY_PARENT_SERVICE_UUID, LEGACY_RX_UUIDS, LEGACY_TX_UUIDS,
     LEGACY_UNLOCK_UUID,
 };
-use crate::shared::{DeviceDriver, Endian, Record};
+use crate::shared::{DeviceDriver, Endian, Record, SettingsLayout};
 use crate::spec::{DeviceSpec, FieldSpec};
+
+/// Tag for which family-specific helpers apply to a given DeviceSpec —
+/// the ubpm JSON doesn't describe the settings region (its tool doesn't
+/// implement --new-rec-only / --time-sync), so we infer the family here
+/// from the device characteristics that *are* in the JSON.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Family {
+    /// Modern little-endian devices: 7150T, 7151T, 7155T (V1), 7342T, 7361T.
+    ModernLe,
+    /// Older big-endian devices that DO carry a settings region: 7322T, 7600T.
+    OldBe,
+    /// Older big-endian variant for HEM-6232T (different settings write
+    /// address; time-sync layout marked "probably not correct" upstream).
+    OldBe6232,
+    /// No settings region: HEM-7530T (community port left counter +
+    /// time-sync layout undocumented).
+    NoSettings,
+    /// Alt-UUID family (single-channel, no in-band pairing): HEM-7146T,
+    /// HEM-7155T (V2/V3), HEM-7380T.  No settings region either.
+    AltUuid,
+}
 
 /// The HEM-7380T1 / HEM-7146T / HEM-7155T-V2 / HEM-7155T-V3 family — single-
 /// channel BLE protocol under the alternative parent service UUID.
@@ -31,6 +52,7 @@ pub struct GenericDriver {
     /// Same memory size for every user — replicated to match the trait's
     /// slice contract.
     per_user_counts: Vec<u16>,
+    family: Family,
 }
 
 impl GenericDriver {
@@ -41,7 +63,24 @@ impl GenericDriver {
             user_starts.push(spec.addr2);
         }
         let per_user_counts = vec![spec.memory; user_starts.len()];
-        Self { spec, lowercase_name, user_starts, per_user_counts }
+        let family = classify_family(&spec);
+        Self { spec, lowercase_name, user_starts, per_user_counts, family }
+    }
+}
+
+/// Map a DeviceSpec to its settings-layout / time-sync family.  Driven by
+/// the model-name prefix (the parts that aren't in ubpm's JSON live here).
+fn classify_family(spec: &DeviceSpec) -> Family {
+    let parent: Uuid = spec.uuid.parse().unwrap_or(LEGACY_PARENT_SERVICE_UUID);
+    if parent == ALT_PARENT_SERVICE_UUID {
+        return Family::AltUuid;
+    }
+    match spec.model.as_str() {
+        "HEM-7530T" => Family::NoSettings,
+        "HEM-6232T" => Family::OldBe6232,
+        "HEM-7322T" | "HEM-7600T" => Family::OldBe,
+        // Everything else on the legacy UUID is a modern-LE device.
+        _ => Family::ModernLe,
     }
 }
 
@@ -100,10 +139,39 @@ impl DeviceDriver for GenericDriver {
     fn parse_record(&self, bytes: &[u8]) -> Result<Record> {
         parse_record_with_spec(bytes, &self.spec)
     }
-    // Time-sync isn't part of the ubpm JSON spec — left at the default
-    // "not supported" so `--time-sync` returns a clean error rather than
-    // writing garbage.  The hand-rolled hem_7361t.rs etc. drivers still
-    // carry their own time-sync impls and stay registered until commit 3.
+    fn settings_layout(&self) -> Option<SettingsLayout> {
+        match self.family {
+            Family::ModernLe => Some(SettingsLayout {
+                read_address: 0x0010,
+                write_address: 0x0054,
+                unread_records_bytes: (0x00, 0x10),
+                time_sync_bytes: (0x2C, 0x3C),
+            }),
+            Family::OldBe => Some(SettingsLayout {
+                read_address: 0x0260,
+                write_address: 0x0286,
+                unread_records_bytes: (0x00, 0x08),
+                time_sync_bytes: (0x14, 0x1e),
+            }),
+            Family::OldBe6232 => Some(SettingsLayout {
+                read_address: 0x0260,
+                write_address: 0x02A4,
+                unread_records_bytes: (0x00, 0x08),
+                time_sync_bytes: (0x14, 0x1e),
+            }),
+            Family::NoSettings | Family::AltUuid => None,
+        }
+    }
+    fn supports_time_sync(&self) -> bool {
+        matches!(self.family, Family::ModernLe | Family::OldBe)
+    }
+    fn sync_with_system_time(&self, slice: &mut [u8]) -> Result<()> {
+        match self.family {
+            Family::ModernLe => crate::devices::common::sync_time_modern_le(slice),
+            Family::OldBe => crate::devices::common::sync_time_old_be(slice),
+            _ => Err(anyhow!("time sync not supported for {}", self.spec.model)),
+        }
+    }
 }
 
 /// Decode an 8-byte record per ubpm's byte/bit/len convention.  Mirrors
