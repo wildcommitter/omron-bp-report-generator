@@ -12,6 +12,7 @@ on:
       - make_report.sh
       - omron_merge.sh
       - bp_utils.py
+      - omblepy-rs/**
       - .github/workflows/build-image.yml
   pull_request:
     paths:
@@ -22,6 +23,7 @@ on:
       - make_report.sh
       - omron_merge.sh
       - bp_utils.py
+      - omblepy-rs/**
       - .github/workflows/build-image.yml
   workflow_dispatch:
 

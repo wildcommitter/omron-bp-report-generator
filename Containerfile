@@ -1,3 +1,12 @@
+# syntax=docker/dockerfile:1
+# Stage 1 — build the omblepy-rs Rust binary.
+FROM docker.io/library/rust:1-slim-bookworm AS rust-builder
+WORKDIR /build
+COPY omblepy-rs/ omblepy-rs/
+RUN cd omblepy-rs && cargo build --release \
+    && cp target/release/omblepy-rs /omblepy-rs
+
+# Stage 2 — Python runtime that produces the report.
 FROM python:3.13-slim
 
 # matplotlib needs a font; dejavu is what its default ships against
@@ -17,7 +26,9 @@ RUN pip install --no-cache-dir \
 
 COPY analyze.py _render_pdf.py bp_utils.py make_report.sh entrypoint.sh \
      omron_merge.sh /app/
-RUN chmod +x /app/make_report.sh /app/entrypoint.sh /app/omron_merge.sh
+COPY --from=rust-builder /omblepy-rs /app/omblepy-rs
+RUN chmod +x /app/make_report.sh /app/entrypoint.sh /app/omron_merge.sh \
+             /app/omblepy-rs
 
 # /data is the volume mount point: it holds input.csv and receives outputs
 WORKDIR /data

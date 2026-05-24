@@ -1,0 +1,18 @@
+[package]
+name = "omblepy-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Rust port of omblepy — reads records from Omron BLE blood-pressure monitors."
+license = "MIT"
+
+[[bin]]
+name = "omblepy-rs"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
