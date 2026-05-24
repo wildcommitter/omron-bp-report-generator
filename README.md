@@ -65,8 +65,33 @@ podman run --rm -v "$(pwd):/data:Z" bp-report my_readings.csv --md  # both optio
 ```
 
 Relative paths resolve inside `/data`. The CSV path and `--pdf`/`--md`
-can appear in any order. The image bundles only the scripts and Python
-deps (~400 MB) — no conda env, no source data.
+can appear in any order. The image bundles the scripts, Python deps,
+and the `omblepy-rs` Rust binary that talks BLE to the meter (~500 MB
+total) — no conda env, no source data.
+
+### Direct from the meter (BLE)
+
+Skip the phone export. The image bundles `omblepy-rs`, a Rust port of
+[`userx14/omblepy`](https://github.com/userx14/omblepy) that speaks
+the Omron BLE protocol directly. First time, pair the meter:
+
+```
+./bp-report --pair --device hem-7361t --mac AA:BB:CC:DD:EE:FF
+```
+
+(swap the model for your meter; `omblepy-rs list-devices` shows all
+nine supported models). Then run the daemon:
+
+```
+./bp-report --daemon --device hem-7361t --mac AA:BB:CC:DD:EE:FF
+```
+
+The container stays running. Every time you press the BT button on
+the meter it scans, connects, pulls only the unread records, merges
+them into `input.csv`, and rebuilds the report. Ctrl-C to stop.
+
+Both BLE modes need access to the host's BlueZ daemon; the launcher
+adds `--net=host` and bind-mounts `/run/dbus` automatically.
 
 ### Pulling the prebuilt image
 
@@ -115,9 +140,11 @@ input.csv               source data
 analyze.py              stats + chart generation
 make_report.sh          report orchestrator (--pdf default | --md)
 _render_pdf.py          matplotlib PdfPages composer
-entrypoint.sh           container entrypoint (cd /data → analyze + report)
-bp-report               host-side launcher: `./bp-report INPUT.csv [-o OUT]`
-Containerfile           podman/docker image definition
+entrypoint.sh           container entrypoint — CSV / --daemon / --pair
+bp-report               host-side launcher: CSV inputs OR --daemon / --pair
+omblepy-rs/             Rust port of omblepy — BLE client for Omron meters
+omron_merge.sh          csvkit-based dedupe-merge for CSV inputs
+Containerfile           multi-stage: rust-builder → python:3.13-slim
 .containerignore        excludes env/ and outputs from build context
 env/                    project-local conda env (Python 3.13)
 README.md               this file

@@ -54,11 +54,23 @@ Cardiology-oriented additions on the PDF:
   env vars so the container can override without code changes:
   - `WORK_DIR` (where input/output live; default = script dir)
   - `PYTHON_BIN` (interpreter; default = `./env/bin/python`)
-- `bp-report` — host-side launcher around `podman run`. Takes a CSV
-  path and optional `-o OUTPUT_DIR`, mounts things correctly.
-- `entrypoint.sh` — container entrypoint. Accepts optional positional
-  CSV path + `--pdf`/`--md`. Validates args before running analysis.
-- `Containerfile` — `python:3.13-slim` + pip deps. No conda inside.
+- `bp-report` — host-side launcher around `podman run`. Three modes:
+  CSV (the default — takes one or more OMRON exports and writes a
+  report), `--daemon` (long-running BLE listener, see below), and
+  `--pair` (one-shot pairing of a fresh meter). Handles the DBus
+  bind-mounts the BLE modes need.
+- `entrypoint.sh` — container entrypoint. Branches on `--daemon` /
+  `--pair` / CSV positional args. Validates args before running.
+- `Containerfile` — multi-stage: stage 1 (`rust:1-slim-bookworm`) builds
+  `omblepy-rs`; stage 2 (`python:3.13-slim`) bundles the scripts +
+  binary + `libdbus-1-3` + `bluez` for runtime DBus.
+- `omblepy-rs/` — Rust port of [`userx14/omblepy`](https://github.com/userx14/omblepy).
+  Compiled with `bluer`; talks to Omron BLE blood-pressure meters over
+  the host's BlueZ DBus. Subcommands: `list-devices`, `scan`, `pair`,
+  `dump` (one-shot), `daemon` (listener loop). All 9 upstream device
+  drivers ported. Writes the Spanish 17-column OMRON-Complete CSV
+  schema so `omron_merge.sh` can stack a daemon-written file alongside
+  a hand-exported one.
 - `.github/workflows/build-image.yml` — buildah/podman GitHub Action
   that publishes to `ghcr.io/wildcommitter/omron-bp-report-generator`.
 
@@ -68,7 +80,9 @@ Cardiology-oriented additions on the PDF:
 ./env/bin/python analyze.py        # regenerate stats + PNGs
 ./make_report.sh                   # build report.pdf
 ./make_report.sh --md              # build report.md instead
-./bp-report path/to/file.csv       # run via container
+./bp-report path/to/file.csv       # CSV mode via container
+./bp-report --pair --device hem-7361t --mac AA:BB:CC:DD:EE:FF  # first-time BLE setup
+./bp-report --daemon --device hem-7361t --mac AA:BB:CC:DD:EE:FF  # listen for the meter
 podman build -t bp-report .        # rebuild container image
 ```
 
@@ -93,6 +107,21 @@ podman build -t bp-report .        # rebuild container image
   should call this rather than `pd.read_csv` directly.
 - **NaN cells** in the PDF tables render as `—`, not `nan`
   (`add_table()` in `_render_pdf.py` handles this).
+- **Bluetooth in the container** — `--daemon` and `--pair` need the
+  host's BlueZ available inside. The launcher handles this by adding
+  `--net=host` and bind-mounting `/run/dbus` (or `/var/run/dbus` on
+  older hosts). No bluetooth-daemon inside the container — it talks
+  to the host's via DBus.
+- **CSV emit format** — `omblepy-rs` writes the **full 17-column**
+  OMRON Complete schema (the same `Fecha,Hora,Sistólica (mmHg),…`
+  header the user's existing `input.csv` carries), not just the five
+  columns `bp_utils.load_omron_csv` reads. Header parity is what lets
+  `omron_merge.sh` stack a daemon-written file against a hand-exported
+  one — the script enforces exact-header equality.
+- **Pairing key** — default is upstream omblepy's
+  `deadbeaf12341234deadbeaf12341234`. Meters paired with the Python
+  tool keep working with no re-pair. Override with `--pair-key HEX`
+  on the launcher, or `BP_PAIR_KEY` in the env.
 
 ## Git workflow
 
@@ -115,3 +144,6 @@ podman build -t bp-report .        # rebuild container image
 - Don't skip pre-commit hooks (`--no-verify`) or signing (`--no-gpg-sign`)
   unless explicitly asked — for this repo we set
   `commit.gpgsign=false` per-command because no signing key is set up.
+- Don't run `cargo` on the host — there's no Rust toolchain installed.
+  Compile + test `omblepy-rs` via `podman build --target rust-builder`
+  (compile-only) or a one-off `cargo test` Containerfile.
