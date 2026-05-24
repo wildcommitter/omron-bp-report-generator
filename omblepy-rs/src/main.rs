@@ -10,6 +10,7 @@ mod daemon;
 mod devices;
 mod protocol;
 mod shared;
+mod spec;
 
 #[derive(Parser, Debug)]
 #[command(
