@@ -27,10 +27,12 @@ package() {
     cd "$srcdir/omron-bp-report-generator-$pkgver"
 
     # Default the installed launcher to the GHCR image for the same tag.
-    # The user can still override with `BP_REPORT_IMAGE=…` if they have a
-    # locally-built image or want a different tag.
+    # `docker/metadata-action` publishes the image without the `v` prefix
+    # (e.g. v0.1.0 → :0.1.0), so we must NOT include `v` here.  The user
+    # can still override with `BP_REPORT_IMAGE=…` if they have a locally-
+    # built image or want a different tag.
     sed -i \
-        -e "s|IMAGE=\"\${BP_REPORT_IMAGE:-bp-report}\"|IMAGE=\"\${BP_REPORT_IMAGE:-ghcr.io/wildcommitter/omron-bp-report-generator:v${pkgver}}\"|" \
+        -e "s|IMAGE=\"\${BP_REPORT_IMAGE:-bp-report}\"|IMAGE=\"\${BP_REPORT_IMAGE:-ghcr.io/wildcommitter/omron-bp-report-generator:${pkgver}}\"|" \
         bp-report
 
     install -Dm755 bp-report "$pkgdir/usr/bin/bp-report"
