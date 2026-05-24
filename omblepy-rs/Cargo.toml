@@ -10,7 +10,13 @@ name = "omblepy-rs"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "1"
+bluer = { version = "0.17", features = ["bluetoothd"] }
 clap = { version = "4", features = ["derive"] }
+futures = "0.3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [profile.release]
 lto = "thin"

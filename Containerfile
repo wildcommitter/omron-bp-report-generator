@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:1
 # Stage 1 — build the omblepy-rs Rust binary.
 FROM docker.io/library/rust:1-slim-bookworm AS rust-builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        pkg-config libdbus-1-dev \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 COPY omblepy-rs/ omblepy-rs/
 RUN cd omblepy-rs && cargo build --release \
