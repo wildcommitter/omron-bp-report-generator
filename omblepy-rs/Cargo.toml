@@ -15,7 +15,7 @@ bluer = { version = "0.17", features = ["bluetoothd"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
 futures = "0.3"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "signal"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "signal", "process"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

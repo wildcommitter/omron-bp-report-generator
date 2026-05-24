@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 
 mod ble;
 mod csv_out;
+mod daemon;
 mod devices;
 mod protocol;
 mod shared;
@@ -46,6 +47,33 @@ enum Cmd {
         /// keep working.
         #[arg(long, short = 'k')]
         key: Option<String>,
+    },
+    /// Stay running, watch for the meter to advertise, and pull-merge-
+    /// rebuild on every BT-button press.  See daemon.rs for the loop.
+    Daemon {
+        #[arg(long, short = 'd')]
+        device: String,
+        #[arg(long, short = 'm')]
+        mac: String,
+        /// Existing input.csv to merge each session into.
+        #[arg(long, default_value = "/data/input.csv")]
+        merge_target: PathBuf,
+        /// Per-session staging CSV (overwritten every iteration).
+        #[arg(long, default_value = "/tmp/omblepy-session.csv")]
+        session_csv: PathBuf,
+        #[arg(long, default_value = "/app/omron_merge.sh")]
+        merge_script: PathBuf,
+        /// Shell command run after each merge.  Typically rebuilds the
+        /// report — e.g. `python /app/analyze.py && /app/make_report.sh`.
+        #[arg(long)]
+        rebuild_cmd: Option<String>,
+        /// Override the 32-char-hex pairing key.
+        #[arg(long, short = 'k')]
+        key: Option<String>,
+        /// Sync the meter's clock on every session.  Off by default —
+        /// once per power-cycle is plenty.
+        #[arg(long)]
+        time_sync: bool,
     },
     /// One-shot read: connect to a paired meter, pull records, write a
     /// CSV in OMRON-Complete schema that bp_utils.load_omron_csv() reads.
@@ -174,6 +202,32 @@ async fn main() -> Result<()> {
                 })?;
                 println!("Merged into {}", target.display());
             }
+        }
+        Cmd::Daemon {
+            device,
+            mac,
+            merge_target,
+            session_csv,
+            merge_script,
+            rebuild_cmd,
+            key,
+            time_sync,
+        } => {
+            let key = match key {
+                Some(s) => protocol::parse_pairing_key(&s)?,
+                None => protocol::DEFAULT_PAIRING_KEY,
+            };
+            let cfg = daemon::DaemonConfig {
+                device_name: device,
+                mac: ble::parse_mac(&mac)?,
+                pairing_key: key,
+                session_csv,
+                merge_target,
+                merge_script,
+                rebuild_cmd,
+                time_sync_each_session: time_sync,
+            };
+            daemon::run(cfg).await?;
         }
     }
     Ok(())

@@ -12,9 +12,13 @@ RUN cd omblepy-rs && cargo build --release \
 # Stage 2 — Python runtime that produces the report.
 FROM python:3.13-slim
 
-# matplotlib needs a font; dejavu is what its default ships against
+# matplotlib needs a font (dejavu is the default); libdbus + bluez are
+# what omblepy-rs's bluer dep links against at runtime so the daemon can
+# reach the host's BlueZ over the bind-mounted /run/dbus socket.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-dejavu-core \
+        libdbus-1-3 \
+        bluez \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
