@@ -11,6 +11,7 @@ mod hem_7155t;
 mod hem_7322t;
 mod hem_7342t;
 mod hem_7361t;
+mod hem_7380t1;
 mod hem_7530t;
 mod hem_7600t;
 
@@ -45,6 +46,7 @@ pub fn driver_for(name: &str) -> Option<Box<dyn DeviceDriver>> {
         "hem-7322t" => Some(Box::new(hem_7322t::Hem7322t)),
         "hem-7342t" => Some(Box::new(hem_7342t::Hem7342t)),
         "hem-7361t" => Some(Box::new(hem_7361t::Hem7361t)),
+        "hem-7380t1" => Some(Box::new(hem_7380t1::Hem7380t1)),
         "hem-7530t" => Some(Box::new(hem_7530t::Hem7530t)),
         "hem-7600t" => Some(Box::new(hem_7600t::Hem7600t)),
         _ => None,

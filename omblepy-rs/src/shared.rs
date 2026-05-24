@@ -52,6 +52,12 @@ pub trait DeviceDriver: Send + Sync {
     fn supports_time_sync(&self) -> bool {
         false
     }
+    /// HEM-7380T1 doesn't support omblepy-style write-the-key pairing — it
+    /// only accepts OS-level BLE bonding via `Device::pair`. Drivers that
+    /// need that path return true; the `pair` subcommand branches on it.
+    fn os_bonding_only(&self) -> bool {
+        false
+    }
     fn parse_record(&self, bytes: &[u8]) -> Result<Record>;
     /// Mutate the time-sync slice of the cached settings in place. Default
     /// is "not supported"; overridden by drivers that know the byte layout.

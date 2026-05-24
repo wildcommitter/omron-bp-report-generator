@@ -77,17 +77,25 @@ async fn main() -> Result<()> {
             }
         }
         Cmd::Pair { device, mac, key } => {
-            if !devices::is_supported(&device) {
-                bail!("unsupported device '{}', run `list-devices` to see options", device);
-            }
+            let driver = devices::driver_for(&device).ok_or_else(|| {
+                anyhow::anyhow!("unsupported device '{}', run `list-devices` to see options", device)
+            })?;
             let key = match key {
                 Some(s) => protocol::parse_pairing_key(&s)?,
                 None => protocol::DEFAULT_PAIRING_KEY,
             };
-            let cfg = devices::channel_config_for(&device);
+            let cfg = driver.channel_config();
             let ble = ble::Ble::new().await?;
             let addr = ble::parse_mac(&mac)?;
             let dev = ble.connect(addr).await.context("connect to meter")?;
+
+            if driver.os_bonding_only() {
+                // HEM-7380T1: no in-band key write; just ask the OS to bond.
+                dev.pair().await.context("OS-level BLE bond request")?;
+                println!("Bonded {mac} as {device} via the OS.");
+                return Ok(());
+            }
+
             ble.wait_for_service(&dev, cfg.parent_service, 20).await?;
             let mut proto = protocol::Protocol::new(&dev, cfg).await?;
             proto.write_pairing_key(&key).await?;
