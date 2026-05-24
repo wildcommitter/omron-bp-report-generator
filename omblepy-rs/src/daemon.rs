@@ -84,6 +84,7 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
         }
 
         info!("daemon: meter advertisement seen, starting session");
+        let mut cool_down = Duration::from_secs(2);
         match run_session(&ble, &*driver, &channel, &cfg).await {
             Ok(true) => {
                 if let Some(cmd) = &cfg.rebuild_cmd {
@@ -95,12 +96,17 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
             Ok(false) => info!("daemon: no new records this session"),
             Err(e) => {
                 error!("daemon: session failed: {e:?}");
+                // The meter is still advertising continuously, so without
+                // a longer back-off we'd just hot-loop on the same error
+                // (wrong pairing key, missing service, etc.) every two
+                // seconds.  30 s is long enough that the user has a
+                // chance to fix the underlying state (re-pair, reset
+                // meter) without the log filling up.
+                cool_down = Duration::from_secs(30);
             }
         }
 
-        // Short cool-down before re-scanning so we don't immediately latch
-        // onto the same advertisement burst.
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(cool_down).await;
     }
 }
 
