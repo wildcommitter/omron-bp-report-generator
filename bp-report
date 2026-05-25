@@ -21,15 +21,16 @@ Arguments:
   --md                   produce report.md
   -h, --help             show this help
 
-Build the image first with:
-  podman build -t bp-report .
+Environment:
+  BP_REPORT_IMAGE        override the container image
+                         (default: ghcr.io/wildcommitter/omron-bp-report-generator:latest)
 EOF
 }
 
 INPUTS=()
 OUTPUT_DIR=""
 FORMAT_ARGS=()
-IMAGE="${BP_REPORT_IMAGE:-bp-report}"
+IMAGE="${BP_REPORT_IMAGE:-ghcr.io/wildcommitter/omron-bp-report-generator:latest}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -62,9 +63,14 @@ mkdir -p "$OUTPUT_DIR"
 OUT_ABS="$(realpath "$OUTPUT_DIR")"
 
 if ! podman image exists "$IMAGE"; then
-    echo "error: image '$IMAGE' not found. Build it first:" >&2
-    echo "  podman build -t $IMAGE $(dirname "$(realpath "$0")")" >&2
-    exit 1
+    echo "pulling $IMAGE ..." >&2
+    if ! podman pull "$IMAGE"; then
+        echo "error: could not obtain image '$IMAGE'." >&2
+        echo "       set BP_REPORT_IMAGE to override, or build locally:" >&2
+        echo "         podman build -t bp-report $(dirname "$(realpath "$0")")" >&2
+        echo "         BP_REPORT_IMAGE=bp-report $(basename "$0") ..." >&2
+        exit 1
+    fi
 fi
 
 # Build the mount + path argument lists, one per input.  Each input is mounted
