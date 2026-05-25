@@ -265,8 +265,11 @@ with PdfPages(out) as pdf:
             return "—" if pd.isna(v) else fmt.format(v) + suffix
 
         def _phen_short(row):
-            primary = row.get("phenotype_primary") or ""
-            secondary = row.get("phenotype_secondary") or ""
+            def _s(key):
+                v = row.get(key)
+                return "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v)
+            primary = _s("phenotype_primary")
+            secondary = _s("phenotype_secondary")
             tags = [primary] + (secondary.split(";") if secondary else [])
             return "+".join(t for t in tags if t)
 
@@ -530,6 +533,10 @@ with PdfPages(out) as pdf:
     }
 
     def _phenotype_chip(fig_, x, y, primary, secondary):
+        def _s(v):
+            return "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v)
+        primary = _s(primary)
+        secondary = _s(secondary)
         color = PHENOTYPE_COLORS.get(primary, "#555")
         label = primary if not secondary else f"{primary} · {secondary.replace(';', ' · ')}"
         fig_.text(x, y, label, ha="right", va="center",
